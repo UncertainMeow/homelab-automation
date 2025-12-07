@@ -1,0 +1,371 @@
+Directory structure:
+└── uncertainmeow-portable-dotfiles/
+    ├── README.md
+    ├── aliases.zsh
+    ├── bootstrap-portable.sh
+    ├── functions.zsh
+    └── zshrc
+
+================================================
+FILE: README.md
+================================================
+# Portable Dotfiles
+
+Lightweight, zero-dependency shell configuration for remote servers and minimal environments.
+
+## Quick Install
+
+One-liner install via curl:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/UncertainMeow/portable-dotfiles/main/bootstrap-portable.sh | bash
+```
+
+## What This Is
+
+When you SSH into a remote server and type `ll` only to get "command not found" - that's what this solves.
+
+This is a minimal, fast subset of dotfiles designed for:
+- Remote servers accessed via SSH
+- Containers and VMs
+- Fresh Linux installs
+- Any environment where you want your essential aliases and functions without the overhead
+
+## Features
+
+**All your muscle memory preserved:**
+- Essential aliases (ll, la, gs, gst, gd, etc.)
+- Core functions (mkcd, extract, ports, weather, etc.)
+- Git-aware prompt with current directory
+- Smart history configuration
+- Fast and minimal - no plugins, themes, or slow startup
+
+**Zero dependencies:**
+- No oh-my-zsh required
+- No plugin managers
+- No external tools needed
+- Works on any Linux distribution
+
+**Self-updating:**
+- `dotpull` alias to update from repository
+- Auto-detects OS and adapts configuration
+
+## What's Included
+
+### Files
+- `aliases.zsh` - Essential command aliases
+- `functions.zsh` - Core utility functions
+- `zshrc` - Minimal zsh configuration
+- `bootstrap-portable.sh` - Automated installer
+
+### Key Aliases
+```bash
+ll          # ls -lah
+gs          # git status
+gst         # git status
+gd          # git diff
+gco         # git checkout
+gp          # git push
+gl          # git pull
+```
+
+### Key Functions
+```bash
+mkcd        # Make directory and cd into it
+extract     # Extract any archive format
+ports       # Show listening ports
+weather     # Get weather for a location
+serve       # Start HTTP server in current directory
+```
+
+## Installation
+
+### One-liner (recommended)
+```bash
+curl -fsSL https://raw.githubusercontent.com/UncertainMeow/portable-dotfiles/main/bootstrap-portable.sh | bash
+```
+
+### Manual Installation
+```bash
+# Clone the repository
+git clone https://github.com/UncertainMeow/portable-dotfiles.git ~/.portable-dotfiles
+
+# Source in your .zshrc
+echo 'source ~/.portable-dotfiles/zshrc' >> ~/.zshrc
+
+# Reload shell
+exec zsh
+```
+
+## Updating
+
+Built-in update command:
+```bash
+dotpull
+```
+
+Or manually:
+```bash
+cd ~/.portable-dotfiles && git pull
+```
+
+## Relationship to Main Dotfiles
+
+This is the lightweight sibling of [UncertainMeow/dotfiles](https://github.com/UncertainMeow/dotfiles).
+
+**Main dotfiles**: Full-featured development environment for your primary workstation
+**Portable dotfiles**: Minimal essentials for remote servers and quick setups
+
+Use main dotfiles on your development machine. Use portable dotfiles everywhere else.
+
+## Philosophy
+
+Fast, minimal, and dependency-free. If you need more features, use the main dotfiles. This is intentionally kept simple and focused.
+
+## Requirements
+
+- zsh (installed but doesn't need to be your default shell)
+- git (for installation and updates)
+- curl or wget (for one-liner install)
+
+## Compatibility
+
+Tested on:
+- Ubuntu 20.04+
+- Debian 11+
+- CentOS 7+
+- Fedora 35+
+- Arch Linux
+- macOS 11+
+
+Works on any POSIX-compliant system with zsh available.
+
+## License
+
+MIT License - use freely, modify as needed
+
+
+
+================================================
+FILE: aliases.zsh
+================================================
+#!/usr/bin/env zsh
+# Portable Dotfiles - Essential Aliases Only
+# Minimal set for SSH sessions on remote servers
+
+# === Safety First ===
+alias rm='rm -i'
+alias cp='cp -i'
+alias mv='mv -i'
+
+# === Directory Navigation (Muscle Memory!) ===
+alias ls='ls --color=auto 2>/dev/null || ls -G'
+alias ll='ls -lAh'
+alias la='ls -A'
+alias l='ls -CF'
+
+alias ..='cd ..'
+alias ...='cd ../..'
+alias ....='cd ../../..'
+alias .....='cd ../../../..'
+alias ~='cd ~'
+alias -- -='cd -'
+
+# === Git Essentials ===
+alias g='git'
+alias gs='git status'
+alias gst='git status'
+alias ga='git add'
+alias gc='git commit'
+alias gp='git push'
+alias gl='git pull'
+alias gd='git diff'
+alias gco='git checkout'
+alias gb='git branch'
+alias glog='git log --oneline --graph --decorate'
+
+# === System Info (Quick Checks) ===
+alias df='df -h'
+alias du='du -h'
+alias free='free -h 2>/dev/null || vm_stat'
+alias ports='netstat -tulanp 2>/dev/null || lsof -i'
+
+# === Quick Edits ===
+alias v='${EDITOR:-vim}'
+alias vi='${EDITOR:-vim}'
+
+# === Networking ===
+alias myip='curl -s ifconfig.me'
+alias ping='ping -c 5'
+
+# === Dotfiles Management ===
+alias dotpull='cd ~/.dotfiles && git pull && source ~/.zshrc && cd -'
+alias dotstatus='cd ~/.dotfiles && git status && cd -'
+
+# === Quick System ===
+alias h='history'
+alias j='jobs'
+alias c='clear'
+alias reload='exec ${SHELL} -l'
+
+
+
+================================================
+FILE: bootstrap-portable.sh
+================================================
+[Binary file]
+
+
+================================================
+FILE: functions.zsh
+================================================
+#!/usr/bin/env zsh
+# Portable Dotfiles - Essential Functions Only
+# Minimal set for SSH sessions on remote servers
+
+# Make directory and cd into it
+mkcd() {
+    mkdir -p "$1" && cd "$1"
+}
+
+# Go up N directories
+up() {
+    local levels=${1:-1}
+    local path=""
+    for ((i=0; i<levels; i++)); do
+        path="../$path"
+    done
+    cd "$path" || return 1
+}
+
+# Extract archives (any type)
+extract() {
+    if [ -f "$1" ]; then
+        case "$1" in
+            *.tar.bz2)   tar xjf "$1"    ;;
+            *.tar.gz)    tar xzf "$1"    ;;
+            *.bz2)       bunzip2 "$1"    ;;
+            *.rar)       unrar x "$1"    ;;
+            *.gz)        gunzip "$1"     ;;
+            *.tar)       tar xf "$1"     ;;
+            *.tbz2)      tar xjf "$1"    ;;
+            *.tgz)       tar xzf "$1"    ;;
+            *.zip)       unzip "$1"      ;;
+            *.Z)         uncompress "$1" ;;
+            *.7z)        7z x "$1"       ;;
+            *)           echo "'$1' cannot be extracted" ;;
+        esac
+    else
+        echo "'$1' is not a valid file"
+    fi
+}
+
+# Find process by name
+psg() {
+    ps aux | grep -v grep | grep -i -e VSZ -e "$1"
+}
+
+# Show listening ports
+listening() {
+    if command -v lsof >/dev/null 2>&1; then
+        lsof -i -P -n | grep LISTEN
+    elif command -v netstat >/dev/null 2>&1; then
+        netstat -tulanp 2>/dev/null | grep LISTEN
+    else
+        echo "Neither lsof nor netstat available"
+    fi
+}
+
+# Quick HTTP server
+serve() {
+    local port=${1:-8000}
+    echo "Serving on http://localhost:$port"
+    python3 -m http.server "$port" 2>/dev/null || python -m SimpleHTTPServer "$port"
+}
+
+# Find and cd to directory
+cdf() {
+    local dir
+    dir=$(find ${1:-.} -type d 2>/dev/null | fzf +m) && cd "$dir"
+}
+
+# Quick backup
+bak() {
+    cp "$1" "$1.bak.$(date +%Y%m%d_%H%M%S)"
+}
+
+
+
+================================================
+FILE: zshrc
+================================================
+#!/usr/bin/env zsh
+# =============================================================================
+# PORTABLE DOTFILES - Minimal Remote Setup
+# =============================================================================
+# Ultra-lightweight config for SSH sessions
+# Zero dependencies - works on any Linux server
+
+# XDG Base Directory (if not set)
+export XDG_CONFIG_HOME="${XDG_CONFIG_HOME:-$HOME/.config}"
+export XDG_CACHE_HOME="${XDG_CACHE_HOME:-$HOME/.cache}"
+export XDG_DATA_HOME="${XDG_DATA_HOME:-$HOME/.local/share}"
+
+# Essential environment
+export EDITOR="${EDITOR:-vim}"
+export VISUAL="$EDITOR"
+export PAGER="less"
+
+# History configuration
+HISTFILE="${XDG_DATA_HOME}/zsh/history"
+HISTSIZE=10000
+SAVEHIST=$HISTSIZE
+mkdir -p "$(dirname "$HISTFILE")"
+
+# Shell options (fast, no plugins needed)
+setopt auto_cd              # Type directory name to cd
+setopt extended_glob        # Enhanced pattern matching
+setopt no_beep              # No annoying beeps
+setopt auto_pushd           # Make cd push old directory to stack
+setopt pushd_ignore_dups    # Don't push dupes
+setopt hist_ignore_space    # Ignore commands starting with space
+setopt hist_ignore_all_dups # Remove older dups
+setopt share_history        # Share history between sessions
+setopt inc_append_history   # Add commands immediately
+
+# PATH additions (if they exist)
+[[ -d "$HOME/.local/bin" ]] && export PATH="$HOME/.local/bin:$PATH"
+
+# Load portable configs
+DOTFILES_DIR="${HOME}/.dotfiles"
+[[ -f "$DOTFILES_DIR/config/portable/aliases.zsh" ]] && source "$DOTFILES_DIR/config/portable/aliases.zsh"
+[[ -f "$DOTFILES_DIR/config/portable/functions.zsh" ]] && source "$DOTFILES_DIR/config/portable/functions.zsh"
+
+# Minimal prompt (fast, no dependencies)
+# Shows: user@host:~/path$
+autoload -U colors && colors
+PROMPT='%F{cyan}%n@%m%f:%F{blue}%~%f$ '
+
+# Git prompt (if in git repo)
+autoload -Uz vcs_info
+zstyle ':vcs_info:*' enable git
+zstyle ':vcs_info:git:*' formats ' %F{yellow}[%b]%f'
+precmd() { vcs_info }
+setopt prompt_subst
+PROMPT='%F{cyan}%n@%m%f:%F{blue}%~%f${vcs_info_msg_0_}$ '
+
+# Basic completion (no plugins needed)
+autoload -Uz compinit
+if [[ -n ${ZDOTDIR}/.zcompdump(#qN.mh+24) ]]; then
+    compinit
+else
+    compinit -C
+fi
+
+# Completion options
+zstyle ':completion:*' menu select
+zstyle ':completion:*' matcher-list 'm:{a-zA-Z}={A-Za-z}'
+
+echo "📦 Portable dotfiles loaded - use 'dotpull' to update"
+
+

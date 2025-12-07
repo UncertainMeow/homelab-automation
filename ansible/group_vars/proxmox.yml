@@ -1,0 +1,123 @@
+---
+# Common variables for all Proxmox hosts
+# Customize these for your environment
+
+# ============================================
+# Time Configuration
+# ============================================
+timezone: "America/New_York"
+
+# ============================================
+# Security Configuration
+# ============================================
+# Add your SSH public keys here (one per line in the list)
+ssh_public_keys:
+  - "{{ lookup('env', 'SSH_PUBLIC_KEY') | default('', true) }}"
+  # Or hardcode: "ssh-ed25519 AAAAC3... user@host"
+
+# Install and configure fail2ban for SSH protection
+install_fail2ban: false
+
+# ============================================
+# Base System
+# ============================================
+# Run system updates
+proxmox_run_updates: true
+
+# Enable IPv6 forwarding
+enable_ipv6: false
+
+# ============================================
+# Community Scripts
+# ============================================
+enable_post_install: true
+enable_microcode: true
+enable_netdata: true
+enable_kernel_clean: true
+enable_pve_scripts_local: true
+enable_iptag: true
+
+# ============================================
+# PCI Passthrough & GPU
+# ============================================
+# Auto-detected, but can force:
+enable_pci_passthrough: true
+force_pci_passthrough: false
+
+# NVIDIA GPU setup (auto-detects)
+enable_nvidia_setup: true
+
+# ============================================
+# Tailscale Emergency Beacon
+# ============================================
+create_tailscale_router: false  # Set true to create beacon
+
+tailscale_router_config:
+  id: 200
+  hostname: "tailscale-beacon"
+  cores: 1
+  memory: 512
+  disk: 2
+  ip: "dhcp"
+  gateway: "10.203.1.1"
+
+# Tailscale authentication
+tailscale_auth_method: "key"  # "key" or "manual"
+# tailscale_auth_key: defined in vault.yml
+
+# Subnet routes to advertise
+tailscale_subnet_routes:
+  - "10.203.0.0/16"  # Your entire homelab
+
+# Optional: Make beacon an exit node
+tailscale_exit_node: false
+
+# ============================================
+# VM Templates
+# ============================================
+create_vm_templates: false  # Set true to create templates
+
+vm_templates:
+  debian12:
+    enabled: true
+    vmid: 9000
+    name: "debian-12-cloudinit"
+    cores: 2
+    memory: 2048
+    disk: 10
+
+  omarchy:
+    enabled: false  # Enable when ready to test
+    vmid: 9001
+    name: "omarchy-cloudinit"
+    cores: 4
+    memory: 4096
+    disk: 20
+
+# ============================================
+# LXC Templates
+# ============================================
+download_lxc_templates: false  # Set true to download
+
+lxc_templates_to_download:
+  - debian-12
+  - alpine-3.19
+
+create_lxc_helpers: true  # Create helper scripts
+
+# ============================================
+# Dotfiles
+# ============================================
+deploy_dotfiles: true
+
+dotfiles_repo: "https://github.com/UncertainMeow/portable-dotfiles.git"
+
+dotfiles_modules:
+  - portable  # Essential aliases/functions
+
+# ============================================
+# Infrastructure Snapshot
+# ============================================
+generate_snapshot: false  # Set true to generate baseball card
+
+snapshot_output_dir: "/root/snapshots"

@@ -1,0 +1,159 @@
+---
+# Tailscale Subnet Router Role
+# Creates emergency access "beacon" LXC container
+
+- name: Check if Tailscale router container exists
+  shell: pct list | grep -w "{{ tailscale_router_id }}"
+  register: container_check
+  changed_when: false
+  failed_when: false
+  when: create_tailscale_router | default(false)
+  tags: [tailscale-router]
+
+- name: Download Alpine Linux LXC template
+  shell: pveam download local alpine-3.19-default_20240207_amd64.tar.xz
+  args:
+    creates: /var/lib/vz/template/cache/alpine-3.19-default_20240207_amd64.tar.xz
+  when:
+    - create_tailscale_router | default(false)
+    - container_check.rc != 0
+  tags: [tailscale-router]
+
+- name: Create Tailscale router LXC container
+  shell: |
+    pct create {{ tailscale_router_id }} \
+      /var/lib/vz/template/cache/alpine-3.19-default_20240207_amd64.tar.xz \
+      --hostname {{ tailscale_router_hostname }} \
+      --cores {{ tailscale_router_cores }} \
+      --memory {{ tailscale_router_memory }} \
+      --swap {{ tailscale_router_memory // 2 }} \
+      --rootfs local-lvm:{{ tailscale_router_disk }} \
+      --net0 name=eth0,bridge=vmbr0,ip={{ tailscale_router_ip }},gw={{ tailscale_router_gateway }} \
+      --onboot 1 \
+      --unprivileged 1 \
+      --features nesting=1
+  when:
+    - create_tailscale_router | default(false)
+    - container_check.rc != 0
+  register: lxc_created
+  tags: [tailscale-router]
+
+- name: Start Tailscale router container
+  shell: pct start {{ tailscale_router_id }}
+  when: lxc_created is changed
+  tags: [tailscale-router]
+
+- name: Wait for container to boot
+  pause:
+    seconds: 10
+  when: lxc_created is changed
+  tags: [tailscale-router]
+
+- name: Install Tailscale in container
+  shell: |
+    pct exec {{ tailscale_router_id }} -- sh -c "
+      apk update &&
+      apk add --no-cache tailscale iptables ip6tables &&
+      rc-update add tailscale &&
+      rc-service tailscale start
+    "
+  when: lxc_created is changed
+  tags: [tailscale-router]
+
+- name: Configure Tailscale with auth key (automated)
+  shell: |
+    pct exec {{ tailscale_router_id }} -- sh -c "
+      tailscale up --authkey={{ tailscale_auth_key }} \
+        --advertise-routes={{ tailscale_subnet_routes | join(',') }} \
+        {{ '--advertise-exit-node' if tailscale_exit_node else '' }} \
+        --accept-routes \
+        --hostname={{ tailscale_router_hostname }}
+    "
+  when:
+    - lxc_created is changed
+    - tailscale_auth_method == 'key'
+    - tailscale_auth_key is defined
+  no_log: true
+  register: tailscale_auth
+  tags: [tailscale-router]
+
+- name: Configure Tailscale manually (interactive)
+  shell: |
+    pct exec {{ tailscale_router_id }} -- sh -c "
+      tailscale up \
+        --advertise-routes={{ tailscale_subnet_routes | join(',') }} \
+        {{ '--advertise-exit-node' if tailscale_exit_node else '' }} \
+        --accept-routes \
+        --hostname={{ tailscale_router_hostname }}
+    "
+  when:
+    - lxc_created is changed
+    - tailscale_auth_method == 'manual' or tailscale_auth_key is not defined
+  register: tailscale_manual
+  tags: [tailscale-router]
+
+- name: Display Tailscale authentication URL
+  debug:
+    msg: |
+      ⚠️  Manual Tailscale Authentication Required!
+
+      Visit this URL to authorize the device:
+      {{ tailscale_manual.stdout_lines | select('match', 'https://') | first }}
+
+      After authorization:
+      1. Go to Tailscale admin: https://login.tailscale.com/admin/machines
+      2. Find: {{ tailscale_router_hostname }}
+      3. Enable subnet routes: {{ tailscale_subnet_routes | join(', ') }}
+  when:
+    - tailscale_manual is defined
+    - tailscale_manual is changed
+    - tailscale_auth_method == 'manual'
+  tags: [tailscale-router]
+
+- name: Create Tailscale router info file
+  copy:
+    dest: /root/tailscale-beacon-info.txt
+    content: |
+      Tailscale Emergency Beacon
+      ==========================
+      Created: {{ ansible_date_time.iso8601 }}
+
+      Container Details:
+      - ID: {{ tailscale_router_id }}
+      - Hostname: {{ tailscale_router_hostname }}
+      - IP: {{ tailscale_router_ip }}
+      - Memory: {{ tailscale_router_memory }}MB
+      - Cores: {{ tailscale_router_cores }}
+
+      Tailscale Configuration:
+      - Auth Method: {{ tailscale_auth_method }}
+      - Subnet Routes: {{ tailscale_subnet_routes | join(', ') }}
+      - Exit Node: {{ 'Yes' if tailscale_exit_node else 'No' }}
+
+      Usage:
+      1. Access via Tailscale: ssh root@{{ tailscale_router_hostname }}
+      2. From beacon, access Proxmox: ssh root@{{ ansible_default_ipv4.address }}
+      3. Beacon survives network issues - your emergency backdoor!
+
+      Management:
+      - Start: pct start {{ tailscale_router_id }}
+      - Stop: pct stop {{ tailscale_router_id }}
+      - Console: pct console {{ tailscale_router_id }}
+      - Check Tailscale: pct exec {{ tailscale_router_id }} -- tailscale status
+    mode: '0644'
+  when: create_tailscale_router | default(false)
+  tags: [tailscale-router]
+
+- name: Display beacon creation summary
+  debug:
+    msg: |
+      ✅ Tailscale Emergency Beacon Created!
+
+      Container: {{ tailscale_router_id }} ({{ tailscale_router_hostname }})
+      Status: Running and ready
+      Auth: {{ 'Automated with key' if tailscale_auth_method == 'key' else 'Manual - see URL above' }}
+
+      Your emergency access is configured! 🚨
+      See /root/tailscale-beacon-info.txt for details
+  when: lxc_created is changed
+  tags: [tailscale-router]

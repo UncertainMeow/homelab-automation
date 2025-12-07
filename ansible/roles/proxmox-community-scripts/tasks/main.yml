@@ -1,0 +1,108 @@
+---
+# Proxmox Community Scripts Role
+# Integrates the trusted community helper scripts you use
+
+- name: Run post-install script
+  shell: |
+    bash -c "$(curl -fsSL https://raw.githubusercontent.com/community-scripts/ProxmoxVE/main/tools/pve/post-pve-install.sh)" -s --no-nag-fix
+  args:
+    creates: /var/log/pve-post-install.log
+  when: enable_post_install | default(true)
+  register: post_install
+  changed_when: "'skipped' not in post_install.stdout"
+  tags: [community-scripts, post-install]
+
+- name: Mark post-install as complete
+  file:
+    path: /var/log/pve-post-install.log
+    state: touch
+    mode: '0644'
+  when: post_install is changed
+  tags: [community-scripts, post-install]
+
+- name: Install processor microcode
+  shell: |
+    bash -c "$(curl -fsSL https://raw.githubusercontent.com/community-scripts/ProxmoxVE/main/tools/pve/microcode.sh)"
+  args:
+    creates: /var/log/microcode-installed.log
+  when: enable_microcode | default(true)
+  register: microcode
+  changed_when: "'installed' in microcode.stdout or 'updated' in microcode.stdout"
+  tags: [community-scripts, microcode]
+
+- name: Mark microcode as installed
+  file:
+    path: /var/log/microcode-installed.log
+    state: touch
+    mode: '0644'
+  when: microcode is changed
+  tags: [community-scripts, microcode]
+
+- name: Install Netdata monitoring
+  shell: |
+    bash -c "$(curl -fsSL https://raw.githubusercontent.com/community-scripts/ProxmoxVE/main/tools/addon/netdata.sh)"
+  args:
+    creates: /etc/netdata/netdata.conf
+  when: enable_netdata | default(true)
+  register: netdata
+  tags: [community-scripts, netdata]
+
+- name: Configure Netdata
+  lineinfile:
+    path: /etc/netdata/netdata.conf
+    regexp: "{{ item.regexp }}"
+    line: "{{ item.line }}"
+    state: present
+  loop:
+    - { regexp: '^\s*bind socket to IP =', line: '    bind socket to IP = 0.0.0.0' }
+    - { regexp: '^\s*default port =', line: '    default port = 19999' }
+  when: netdata is changed and enable_netdata | default(true)
+  notify: restart netdata
+  tags: [community-scripts, netdata]
+
+- name: Run kernel cleanup
+  shell: |
+    bash -c "$(curl -fsSL https://raw.githubusercontent.com/community-scripts/ProxmoxVE/main/tools/pve/kernel-clean.sh)"
+  when: enable_kernel_clean | default(true)
+  register: kernel_clean
+  changed_when: "'removed' in kernel_clean.stdout"
+  tags: [community-scripts, kernel-clean]
+
+- name: Install community scripts locally (pve-scripts-local)
+  shell: |
+    bash -c "$(curl -fsSL https://raw.githubusercontent.com/community-scripts/ProxmoxVE/main/tools/pve/pve-scripts-local.sh)"
+  args:
+    creates: /usr/local/bin/pve-scripts
+  when: enable_pve_scripts_local | default(true)
+  register: pve_scripts_local
+  tags: [community-scripts, pve-scripts-local]
+
+- name: Add IP tag to Proxmox UI (optional)
+  shell: |
+    bash -c "$(curl -fsSL https://raw.githubusercontent.com/community-scripts/ProxmoxVE/main/tools/pve/add-iptag.sh)"
+  args:
+    creates: /var/log/iptag-added.log
+  when: enable_iptag | default(true)
+  register: iptag
+  changed_when: true
+  tags: [community-scripts, iptag]
+
+- name: Mark iptag as installed
+  file:
+    path: /var/log/iptag-added.log
+    state: touch
+    mode: '0644'
+  when: iptag is changed
+  tags: [community-scripts, iptag]
+
+- name: Display community scripts summary
+  debug:
+    msg: |
+      Community Scripts Installation Summary:
+      - Post-install: {{ 'Completed' if enable_post_install else 'Skipped' }}
+      - Microcode: {{ 'Installed' if enable_microcode else 'Skipped' }}
+      - Netdata: {{ 'Running on port 19999' if enable_netdata else 'Skipped' }}
+      - Kernel cleanup: {{ 'Completed' if enable_kernel_clean else 'Skipped' }}
+      - PVE Scripts Local: {{ 'Installed' if enable_pve_scripts_local else 'Skipped' }}
+      - IP Tag: {{ 'Added' if enable_iptag else 'Skipped' }}
+  tags: [community-scripts]

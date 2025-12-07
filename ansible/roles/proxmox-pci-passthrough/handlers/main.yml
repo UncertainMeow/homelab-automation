@@ -1,0 +1,11 @@
+---
+# Handlers for proxmox-pci-passthrough role
+
+- name: update-grub
+  command: update-grub
+
+- name: refresh-pve-efiboot
+  command: pve-efiboot-tool refresh
+
+- name: update-initramfs
+  command: update-initramfs -u -k all

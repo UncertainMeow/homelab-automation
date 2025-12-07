@@ -1,0 +1,151 @@
+---
+# Proxmox PCI Passthrough Role
+# Enables IOMMU and VFIO for GPU/device passthrough
+
+- name: Check for NVIDIA GPUs
+  shell: lspci | grep -i nvidia
+  register: nvidia_check
+  changed_when: false
+  failed_when: false
+  tags: [pci-passthrough, detect]
+
+- name: Check for AMD GPUs
+  shell: lspci | grep -i 'vga.*amd\|vga.*radeon'
+  register: amd_check
+  changed_when: false
+  failed_when: false
+  tags: [pci-passthrough, detect]
+
+- name: Set GPU detection facts
+  set_fact:
+    has_nvidia_gpu: "{{ nvidia_check.rc == 0 }}"
+    has_amd_gpu: "{{ amd_check.rc == 0 }}"
+    has_any_gpu: "{{ nvidia_check.rc == 0 or amd_check.rc == 0 }}"
+  tags: [pci-passthrough, detect]
+
+- name: Display GPU detection results
+  debug:
+    msg: |
+      GPU Detection:
+      - NVIDIA GPU: {{ 'Found' if has_nvidia_gpu else 'Not found' }}
+      - AMD GPU: {{ 'Found' if has_amd_gpu else 'Not found' }}
+      - PCI Passthrough: {{ 'Will be configured' if has_any_gpu or force_pci_passthrough else 'Skipped (no GPU)' }}
+  tags: [pci-passthrough, detect]
+
+- name: Detect boot manager
+  shell: efibootmgr -v
+  register: efi_check
+  failed_when: false
+  changed_when: false
+  when: has_any_gpu or force_pci_passthrough | default(false)
+  tags: [pci-passthrough, bootmgr]
+
+- name: Set boot manager facts
+  set_fact:
+    uses_grub: "{{ efi_check.rc != 0 }}"
+    uses_systemd_boot: "{{ efi_check.rc == 0 and 'systemd' in efi_check.stdout }}"
+  when: has_any_gpu or force_pci_passthrough | default(false)
+  tags: [pci-passthrough, bootmgr]
+
+- name: Display boot manager detection
+  debug:
+    msg: |
+      Boot Manager: {{ 'GRUB (Legacy/BIOS)' if uses_grub else 'systemd-boot (UEFI)' if uses_systemd_boot else 'Unknown' }}
+  when: has_any_gpu or force_pci_passthrough | default(false)
+  tags: [pci-passthrough, bootmgr]
+
+# GRUB Configuration
+- name: Configure GRUB for IOMMU
+  lineinfile:
+    path: /etc/default/grub
+    regexp: '^GRUB_CMDLINE_LINUX_DEFAULT='
+    line: 'GRUB_CMDLINE_LINUX_DEFAULT="quiet intel_iommu=on iommu=pt"'
+    backup: yes
+  when: (has_any_gpu or force_pci_passthrough | default(false)) and uses_grub | default(false)
+  notify: update-grub
+  tags: [pci-passthrough, grub]
+
+# systemd-boot Configuration
+- name: Get kernel command line for systemd-boot
+  slurp:
+    src: /etc/kernel/cmdline
+  register: cmdline_content
+  when: (has_any_gpu or force_pci_passthrough | default(false)) and uses_systemd_boot | default(false)
+  tags: [pci-passthrough, systemd-boot]
+
+- name: Configure systemd-boot for IOMMU
+  lineinfile:
+    path: /etc/kernel/cmdline
+    regexp: '^root='
+    line: "{{ cmdline_content['content'] | b64decode | trim }} intel_iommu=on iommu=pt"
+    backup: yes
+  when:
+    - (has_any_gpu or force_pci_passthrough | default(false))
+    - uses_systemd_boot | default(false)
+    - "'intel_iommu=on' not in cmdline_content['content'] | b64decode"
+  notify: refresh-pve-efiboot
+  tags: [pci-passthrough, systemd-boot]
+
+# VFIO Modules
+- name: Add VFIO modules
+  lineinfile:
+    path: /etc/modules
+    line: "{{ item }}"
+    create: yes
+  loop:
+    - vfio
+    - vfio_iommu_type1
+    - vfio_pci
+    - vfio_virqfd
+  when: has_any_gpu or force_pci_passthrough | default(false)
+  notify: update-initramfs
+  tags: [pci-passthrough, vfio]
+
+- name: Check if IOMMU is enabled
+  shell: dmesg | grep -i iommu
+  register: iommu_check
+  changed_when: false
+  failed_when: false
+  when: has_any_gpu or force_pci_passthrough | default(false)
+  tags: [pci-passthrough, verify]
+
+- name: Display IOMMU status
+  debug:
+    msg: |
+      IOMMU Status:
+      {{ iommu_check.stdout if iommu_check.stdout else 'Not yet enabled - reboot required' }}
+
+      {% if iommu_check.stdout and 'DMAR' in iommu_check.stdout %}
+      ✅ IOMMU is enabled and working!
+      {% elif iommu_check.stdout %}
+      ⚠️  IOMMU configuration found, verify functionality after reboot
+      {% else %}
+      📝 IOMMU configured, reboot required to activate
+      {% endif %}
+  when: has_any_gpu or force_pci_passthrough | default(false)
+  tags: [pci-passthrough, verify]
+
+- name: Create PCI passthrough info file
+  copy:
+    dest: /root/pci-passthrough-info.txt
+    content: |
+      PCI Passthrough Configuration
+      =============================
+      Configured: {{ ansible_date_time.iso8601 }}
+      Boot Manager: {{ 'GRUB' if uses_grub else 'systemd-boot' if uses_systemd_boot else 'Unknown' }}
+
+      GPUs Detected:
+      - NVIDIA: {{ 'Yes' if has_nvidia_gpu else 'No' }}
+      - AMD: {{ 'Yes' if has_amd_gpu else 'No' }}
+
+      VFIO Modules: Loaded
+      IOMMU: {{ 'Enabled' if iommu_check.stdout and 'DMAR' in iommu_check.stdout else 'Pending reboot' }}
+
+      Next Steps:
+      1. Reboot the server: reboot
+      2. Verify IOMMU: dmesg | grep -i iommu
+      3. List IOMMU groups: find /sys/kernel/iommu_groups/ -type l
+      4. Continue with GPU driver installation if needed
+    mode: '0644'
+  when: has_any_gpu or force_pci_passthrough | default(false)
+  tags: [pci-passthrough]

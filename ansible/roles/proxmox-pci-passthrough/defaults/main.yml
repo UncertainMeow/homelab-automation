@@ -1,0 +1,5 @@
+---
+# Default variables for proxmox-pci-passthrough role
+
+# Force PCI passthrough even if no GPU detected
+force_pci_passthrough: false

@@ -1,0 +1,76 @@
+---
+# Homelab Automation - Main Playbook
+# Complete Proxmox node configuration
+
+- name: Configure Proxmox VE Hosts
+  hosts: proxmox
+  become: yes
+
+  roles:
+    # Phase 1: Foundation
+    - role: proxmox-base
+      tags: [base, phase1]
+
+    # Phase 2: Community Scripts & Optimizations
+    - role: proxmox-community-scripts
+      tags: [community-scripts, phase2]
+
+    # Phase 3: Hardware Support (conditional on GPU presence)
+    - role: proxmox-pci-passthrough
+      tags: [pci-passthrough, gpu, phase3]
+      when: enable_pci_passthrough | default(true)
+
+    - role: proxmox-nvidia-gpu
+      tags: [nvidia, gpu, phase3]
+      when: enable_nvidia_setup | default(true)
+
+    # Phase 4: Networking & Access
+    - role: tailscale-subnet-router
+      tags: [tailscale-router, tailscale, phase4]
+      when: create_tailscale_router | default(false)
+
+    # Phase 5: Templates & Infrastructure
+    - role: vm-templates
+      tags: [vm-templates, templates, phase5]
+      when: create_vm_templates | default(false)
+
+    - role: lxc-templates
+      tags: [lxc-templates, templates, phase5]
+      when: download_lxc_templates | default(false)
+
+    # Phase 6: User Experience
+    - role: dotfiles-portable
+      tags: [dotfiles, phase6]
+      when: deploy_dotfiles | default(true)
+
+    # Phase 7: Documentation & Validation
+    - role: infra-snapshot
+      tags: [snapshot, docs, phase7]
+      when: generate_snapshot | default(false)
+
+  post_tasks:
+    - name: Display setup completion summary
+      debug:
+        msg: |
+          ╔══════════════════════════════════════════════════════════╗
+          ║   Proxmox Configuration Complete! 🎉                    ║
+          ╚══════════════════════════════════════════════════════════╝
+
+          Host: {{ inventory_hostname }} ({{ ansible_default_ipv4.address }})
+
+          ✅ Base system configured
+          ✅ Community scripts installed
+          {% if enable_netdata | default(true) %}
+          📊 Netdata: http://{{ ansible_default_ipv4.address }}:19999
+          {% endif %}
+          {% if create_tailscale_router | default(false) %}
+          🚨 Emergency beacon: {{ tailscale_router_hostname }}
+          {% endif %}
+
+          Next Steps:
+          1. Review /root/*-info.txt files for details
+          2. Reboot if GPU passthrough was configured
+          3. Access Proxmox Web UI: https://{{ ansible_default_ipv4.address }}:8006
+
+          📖 Documentation: See ansible/docs/
+      tags: [always]

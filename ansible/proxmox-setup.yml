@@ -1,0 +1,206 @@
+---
+# Proxmox Homelab Initial Configuration Playbook
+# This playbook configures a fresh Proxmox installation with common homelab best practices
+
+- name: Configure Proxmox VE Host
+  hosts: proxmox
+  become: yes
+
+  tasks:
+    # ============================================
+    # Repository Configuration
+    # ============================================
+    - name: Disable Enterprise Repository
+      apt_repository:
+        repo: "deb https://enterprise.proxmox.com/debian/pve {{ ansible_distribution_release }} pve-enterprise"
+        state: absent
+        filename: pve-enterprise
+      tags: repos
+
+    - name: Add No-Subscription Repository
+      apt_repository:
+        repo: "deb http://download.proxmox.com/debian/pve {{ ansible_distribution_release }} pve-no-subscription"
+        state: present
+        filename: pve-no-subscription
+      tags: repos
+
+    - name: Remove subscription nag (optional)
+      replace:
+        path: /usr/share/javascript/proxmox-widget-toolkit/proxmoxlib.js
+        regexp: "\\(response\\.data\\.status !== 'Active'\\)"
+        replace: "(false)"
+        backup: yes
+      ignore_errors: yes
+      tags: subscription
+
+    # ============================================
+    # System Updates
+    # ============================================
+    - name: Update apt cache
+      apt:
+        update_cache: yes
+        cache_valid_time: 3600
+      tags: updates
+
+    - name: Upgrade all packages
+      apt:
+        upgrade: dist
+        autoremove: yes
+        autoclean: yes
+      tags: updates
+
+    # ============================================
+    # Essential Packages
+    # ============================================
+    - name: Install common utilities
+      apt:
+        name:
+          - vim
+          - curl
+          - wget
+          - git
+          - htop
+          - iotop
+          - ncdu
+          - tmux
+          - net-tools
+          - dnsutils
+          - lvm2
+          - ifupdown2
+          - sudo
+        state: present
+      tags: packages
+
+    # ============================================
+    # Storage Configuration
+    # ============================================
+    - name: Ensure local-lvm is thinpool (best practice)
+      shell: |
+        lvs | grep -q data && echo "thinpool exists" || echo "thinpool missing"
+      register: thinpool_check
+      changed_when: false
+      ignore_errors: yes
+      tags: storage
+
+    # ============================================
+    # Network Configuration
+    # ============================================
+    - name: Enable IP forwarding
+      sysctl:
+        name: net.ipv4.ip_forward
+        value: '1'
+        sysctl_set: yes
+        state: present
+        reload: yes
+      tags: network
+
+    - name: Enable IPv6 forwarding (if needed)
+      sysctl:
+        name: net.ipv6.conf.all.forwarding
+        value: '1'
+        sysctl_set: yes
+        state: present
+        reload: yes
+      when: enable_ipv6 | default(false)
+      tags: network
+
+    # ============================================
+    # Security Hardening
+    # ============================================
+    - name: Configure SSH - Disable root password login
+      lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: '^#?PermitRootLogin'
+        line: 'PermitRootLogin prohibit-password'
+        state: present
+      notify: restart sshd
+      tags: security
+
+    - name: Add SSH authorized keys for root
+      authorized_key:
+        user: root
+        key: "{{ item }}"
+        state: present
+      loop: "{{ ssh_public_keys }}"
+      when: ssh_public_keys is defined
+      tags: security
+
+    - name: Configure fail2ban (optional)
+      apt:
+        name: fail2ban
+        state: present
+      when: install_fail2ban | default(false)
+      tags: security
+
+    # ============================================
+    # Time Synchronization
+    # ============================================
+    - name: Ensure systemd-timesyncd is running
+      systemd:
+        name: systemd-timesyncd
+        state: started
+        enabled: yes
+      tags: time
+
+    - name: Set timezone
+      timezone:
+        name: "{{ timezone | default('UTC') }}"
+      tags: time
+
+    # ============================================
+    # Email Notifications (Postfix relay)
+    # ============================================
+    - name: Install postfix for email notifications
+      apt:
+        name:
+          - postfix
+          - libsasl2-modules
+        state: present
+      when: configure_email | default(false)
+      tags: email
+
+    - name: Configure postfix as relay
+      template:
+        src: templates/postfix-main.cf.j2
+        dest: /etc/postfix/main.cf
+      when: configure_email | default(false)
+      notify: restart postfix
+      tags: email
+
+    # ============================================
+    # Backup Configuration
+    # ============================================
+    - name: Create backup directory
+      file:
+        path: "{{ backup_mount_point | default('/mnt/backups') }}"
+        state: directory
+        mode: '0755'
+      when: configure_backups | default(false)
+      tags: backups
+
+    # ============================================
+    # Custom Configurations
+    # ============================================
+    - name: Set MOTD
+      copy:
+        dest: /etc/motd
+        content: |
+          ╔════════════════════════════════════════╗
+          ║     Proxmox VE - {{ inventory_hostname }}
+          ║     Managed by Ansible
+          ╚════════════════════════════════════════╝
+      tags: motd
+
+  # ============================================
+  # Handlers
+  # ============================================
+  handlers:
+    - name: restart sshd
+      systemd:
+        name: sshd
+        state: restarted
+
+    - name: restart postfix
+      systemd:
+        name: postfix
+        state: restarted

@@ -1,0 +1,15 @@
+---
+# Default variables for proxmox-base role
+
+# System updates
+proxmox_run_updates: true
+
+# Security
+install_fail2ban: false
+ssh_public_keys: []
+
+# Network
+enable_ipv6: false
+
+# Time
+timezone: "America/New_York"

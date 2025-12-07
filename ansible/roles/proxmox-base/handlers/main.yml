@@ -1,0 +1,7 @@
+---
+# Handlers for proxmox-base role
+
+- name: restart sshd
+  systemd:
+    name: sshd
+    state: restarted

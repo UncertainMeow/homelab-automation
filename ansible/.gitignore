@@ -1,0 +1,18 @@
+# Ansible specific
+*.retry
+.vault_pass
+
+# Inventory files with real IPs/hostnames (keep templates only)
+inventory-*.ini
+!inventory.ini
+
+# Host/group vars with secrets
+**/vault.yml
+**/*secret*.yml
+
+# Python
+__pycache__/
+*.py[cod]
+
+# OS files
+.DS_Store

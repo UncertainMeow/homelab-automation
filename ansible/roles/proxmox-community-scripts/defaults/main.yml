@@ -1,0 +1,20 @@
+---
+# Default variables for proxmox-community-scripts role
+
+# Post-install script (fixes repos, removes nag)
+enable_post_install: true
+
+# Processor microcode updates
+enable_microcode: true
+
+# Netdata monitoring
+enable_netdata: true
+
+# Kernel cleanup (removes old kernels)
+enable_kernel_clean: true
+
+# Install community scripts locally
+enable_pve_scripts_local: true
+
+# Add IP address tag to Proxmox UI
+enable_iptag: true

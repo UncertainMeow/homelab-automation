@@ -1,0 +1,21 @@
+---
+# Default variables for tailscale-subnet-router role
+
+# Enable/disable beacon creation
+create_tailscale_router: false
+
+# Container configuration
+tailscale_router_id: 200
+tailscale_router_hostname: "tailscale-beacon"
+tailscale_router_cores: 1
+tailscale_router_memory: 512  # MB
+tailscale_router_disk: 2  # GB
+tailscale_router_ip: "dhcp"  # or "10.203.4.5/24"
+tailscale_router_gateway: "10.203.1.1"
+
+# Tailscale configuration
+tailscale_auth_method: "key"  # "key" or "manual"
+# tailscale_auth_key: ""  # Set in vault.yml
+tailscale_subnet_routes:
+  - "10.203.0.0/16"  # Your homelab network
+tailscale_exit_node: false  # Set true to also act as exit node

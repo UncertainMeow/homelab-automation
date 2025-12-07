@@ -1,0 +1,122 @@
+---
+# Proxmox Base Configuration Role
+# Core system setup: repos, updates, packages, security, time sync
+
+- name: Disable Enterprise Repository
+  apt_repository:
+    repo: "deb https://enterprise.proxmox.com/debian/pve {{ ansible_distribution_release }} pve-enterprise"
+    state: absent
+    filename: pve-enterprise
+  tags: [base, repos]
+
+- name: Add No-Subscription Repository
+  apt_repository:
+    repo: "deb http://download.proxmox.com/debian/pve {{ ansible_distribution_release }} pve-no-subscription"
+    state: present
+    filename: pve-no-subscription
+  tags: [base, repos]
+
+- name: Update apt cache
+  apt:
+    update_cache: yes
+    cache_valid_time: 3600
+  tags: [base, updates]
+
+- name: Upgrade all packages
+  apt:
+    upgrade: dist
+    autoremove: yes
+    autoclean: yes
+  when: proxmox_run_updates | default(true)
+  tags: [base, updates]
+
+- name: Install essential utilities
+  apt:
+    name:
+      - vim
+      - curl
+      - wget
+      - git
+      - htop
+      - iotop
+      - ncdu
+      - tmux
+      - net-tools
+      - dnsutils
+      - lvm2
+      - ifupdown2
+      - sudo
+      - python3-pip
+      - jq
+      - rsync
+      - screen
+    state: present
+  tags: [base, packages]
+
+- name: Enable IP forwarding
+  sysctl:
+    name: net.ipv4.ip_forward
+    value: '1'
+    sysctl_set: yes
+    state: present
+    reload: yes
+  tags: [base, network]
+
+- name: Enable IPv6 forwarding (if enabled)
+  sysctl:
+    name: net.ipv6.conf.all.forwarding
+    value: '1'
+    sysctl_set: yes
+    state: present
+    reload: yes
+  when: enable_ipv6 | default(false)
+  tags: [base, network]
+
+- name: Configure SSH - Disable root password login
+  lineinfile:
+    path: /etc/ssh/sshd_config
+    regexp: '^#?PermitRootLogin'
+    line: 'PermitRootLogin prohibit-password'
+    state: present
+  notify: restart sshd
+  tags: [base, security]
+
+- name: Add SSH authorized keys for root
+  authorized_key:
+    user: root
+    key: "{{ item }}"
+    state: present
+  loop: "{{ ssh_public_keys }}"
+  when: ssh_public_keys is defined and ssh_public_keys | length > 0
+  tags: [base, security]
+
+- name: Install fail2ban (optional)
+  apt:
+    name: fail2ban
+    state: present
+  when: install_fail2ban | default(false)
+  tags: [base, security]
+
+- name: Ensure systemd-timesyncd is running
+  systemd:
+    name: systemd-timesyncd
+    state: started
+    enabled: yes
+  tags: [base, time]
+
+- name: Set timezone
+  timezone:
+    name: "{{ timezone | default('UTC') }}"
+  tags: [base, time]
+
+- name: Set MOTD
+  copy:
+    dest: /etc/motd
+    content: |
+      ╔════════════════════════════════════════╗
+      ║     Proxmox VE - {{ inventory_hostname }}
+      ║     Managed by Ansible
+      ║     Infrastructure as Code
+      ╚════════════════════════════════════════╝
+    mode: '0644'
+  tags: [base, motd]

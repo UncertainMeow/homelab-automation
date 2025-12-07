@@ -1,0 +1,26 @@
+---
+# Encrypted Vault File Template
+# Copy to vault.yml and encrypt with: ansible-vault encrypt vault.yml
+
+# ============================================
+# Tailscale Authentication
+# ============================================
+# Generate at: https://login.tailscale.com/admin/settings/keys
+# Options:
+#   - Reusable: Yes
+#   - Ephemeral: No
+#   - Preauthorized: Yes
+#   - Tags: tag:beacon
+#   - Expiry: 90 days
+tailscale_auth_key: "tskey-auth-XXXXXXXXXXXXX-YYYYYYYYYYYYYY"
+
+# ============================================
+# Email Notifications (Optional)
+# ============================================
+# smtp_username: "your-email@gmail.com"
+# smtp_password: "your-app-password"
+
+# ============================================
+# Other Secrets
+# ============================================
+# Add other sensitive data here as needed
