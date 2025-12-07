@@ -5,13 +5,14 @@
 create_tailscale_router: false
 
 # Container configuration
+# Hostname pattern: tsb-{{ inventory_hostname }} (e.g., tsb-zeno, tsb-rawls)
 tailscale_router_id: 200
-tailscale_router_hostname: "tailscale-beacon"
+tailscale_router_hostname: "tsb-{{ inventory_hostname }}"
 tailscale_router_cores: 1
 tailscale_router_memory: 512  # MB
 tailscale_router_disk: 2  # GB
 tailscale_router_ip: "dhcp"  # or "10.203.4.5/24"
-tailscale_router_gateway: "10.203.1.1"
+tailscale_router_gateway: "10.203.3.1"
 
 # Tailscale configuration
 tailscale_auth_method: "key"  # "key" or "manual"

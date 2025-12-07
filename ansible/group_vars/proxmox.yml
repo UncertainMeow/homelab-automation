@@ -52,14 +52,9 @@ enable_nvidia_setup: true
 # ============================================
 create_tailscale_router: true  # Emergency access when network fails
 
-tailscale_router_config:
-  id: 200
-  hostname: "tailscale-beacon"
-  cores: 1
-  memory: 512
-  disk: 2
-  ip: "dhcp"
-  gateway: "10.203.1.1"
+# Beacon naming: tsb-{{ inventory_hostname }} (e.g., tsb-zeno, tsb-rawls, tsb-socrates)
+# Override in host_vars if needed
+tailscale_router_gateway: "10.203.3.1"
 
 # Tailscale authentication
 tailscale_auth_method: "key"  # "key" or "manual"
