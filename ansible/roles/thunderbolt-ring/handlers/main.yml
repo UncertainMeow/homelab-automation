@@ -1,0 +1,19 @@
+---
+# Handlers for thunderbolt-ring role
+
+- name: update-initramfs
+  command: update-initramfs -u -k all
+
+- name: reload-systemd-networkd
+  systemd:
+    name: systemd-networkd
+    state: restarted
+    daemon_reload: yes
+
+- name: reload-udev
+  shell: udevadm control --reload-rules && udevadm trigger
+
+- name: restart-networking
+  service:
+    name: networking
+    state: restarted

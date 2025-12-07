@@ -1,0 +1,17 @@
+# Thunderbolt Ring Network Configuration
+# Ansible managed - do not edit
+# Node: {{ inventory_hostname }} (ID: {{ thunderbolt_node_id }})
+
+{% for iface in thunderbolt_interfaces %}
+auto {{ iface.name }}
+allow-hotplug {{ iface.name }}
+iface {{ iface.name }} inet manual
+    pre-up ip link set $IFACE up
+    mtu {{ thunderbolt_mtu }}
+
+{% endfor %}
+# Loopback addresses for Ceph MON / router-id
+auto lo
+iface lo inet loopback
+    up ip addr add {{ thunderbolt_loopback_ipv4 }}/32 dev lo label lo:tb4
+    up ip -6 addr add {{ thunderbolt_loopback_ipv6 }}/128 dev lo

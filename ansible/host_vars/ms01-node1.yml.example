@@ -1,0 +1,16 @@
+---
+# MS-01 Node 1 - Cluster Member
+# Copy to ms01-node1.yml and customize
+
+# Thunderbolt Ring - Node ID (1, 2, or 3)
+thunderbolt_node_id: 1
+
+# i9-13900H P-cores are 0-5 (check your specific CPU)
+thunderbolt_perf_cores: "0-5"
+
+# Override interface PCI paths if different (check with: udevadm monitor)
+# thunderbolt_interfaces:
+#   - name: en05
+#     pci_path: "0000:00:0d.2"
+#   - name: en06
+#     pci_path: "0000:00:0d.3"

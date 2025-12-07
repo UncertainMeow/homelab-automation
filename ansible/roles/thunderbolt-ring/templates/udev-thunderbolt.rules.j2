@@ -1,0 +1,5 @@
+# Thunderbolt interface activation rules
+# Ansible managed - do not edit
+{% for iface in thunderbolt_interfaces %}
+ACTION=="move", SUBSYSTEM=="net", KERNEL=="{{ iface.name }}", RUN+="/usr/local/bin/pve-{{ iface.name }}.sh"
+{% endfor %}

@@ -1,0 +1,35 @@
+---
+# Thunderbolt Ring Network Configuration
+# Based on scyto's MS-01 cluster guide
+
+# Enable/disable TB ring setup
+enable_thunderbolt_ring: false
+
+# Interface naming (MS-01 defaults)
+thunderbolt_interfaces:
+  - name: en05
+    pci_path: "0000:00:0d.2"
+  - name: en06
+    pci_path: "0000:00:0d.3"
+
+# MTU for TB4 (max jumbo frames)
+thunderbolt_mtu: 65520
+
+# Performance core range for IRQ affinity (check with: cat /sys/devices/cpu_core/cpus)
+# i9-13900H has P-cores 0-5, E-cores 6-13
+thunderbolt_perf_cores: "0-5"
+
+# Node-specific IP addressing (set in host_vars)
+# Example for 3-node ring:
+#   node1: thunderbolt_node_id: 1
+#   node2: thunderbolt_node_id: 2
+#   node3: thunderbolt_node_id: 3
+thunderbolt_node_id: 1
+
+# IP scheme (link-local for simplicity)
+thunderbolt_ipv4_base: "169.254.1"
+thunderbolt_ipv6_base: "fd00:tb"
+
+# Loopback IPs for Ceph MON / FRR router-id
+thunderbolt_loopback_ipv4: "10.255.255.{{ thunderbolt_node_id }}"
+thunderbolt_loopback_ipv6: "fd00:lo::{{ thunderbolt_node_id }}"

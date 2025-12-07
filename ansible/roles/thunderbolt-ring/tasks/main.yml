@@ -1,0 +1,189 @@
+---
+# Thunderbolt Ring Network Role
+# Automates scyto's MS-01 TB4 mesh setup
+# https://gist.github.com/scyto/67fdc9a517faefa68f730f82d7fa3570
+
+- name: Validate thunderbolt configuration
+  assert:
+    that:
+      - thunderbolt_node_id is defined
+      - thunderbolt_node_id > 0
+      - thunderbolt_node_id < 255
+    fail_msg: "Set thunderbolt_node_id (1-254) in host_vars/{{ inventory_hostname }}.yml"
+  when: enable_thunderbolt_ring | default(false)
+  tags: [thunderbolt]
+
+# ============================================
+# 1. Kernel Modules
+# ============================================
+- name: Load thunderbolt kernel modules
+  lineinfile:
+    path: /etc/modules
+    line: "{{ item }}"
+    create: yes
+  loop:
+    - thunderbolt
+    - thunderbolt-net
+  when: enable_thunderbolt_ring | default(false)
+  notify: update-initramfs
+  tags: [thunderbolt, modules]
+
+- name: Load modules immediately
+  modprobe:
+    name: "{{ item }}"
+    state: present
+  loop:
+    - thunderbolt
+    - thunderbolt_net
+  when: enable_thunderbolt_ring | default(false)
+  tags: [thunderbolt, modules]
+
+# ============================================
+# 2. Udev Rules for Interface Naming
+# ============================================
+- name: Create systemd network link files for TB interfaces
+  template:
+    src: thunderbolt-link.j2
+    dest: "/etc/systemd/network/00-thunderbolt{{ idx }}.link"
+    mode: '0644'
+  loop: "{{ thunderbolt_interfaces }}"
+  loop_control:
+    index_var: idx
+  when: enable_thunderbolt_ring | default(false)
+  notify: reload-systemd-networkd
+  tags: [thunderbolt, udev]
+
+- name: Create udev rules for interface activation
+  template:
+    src: udev-thunderbolt.rules.j2
+    dest: /etc/udev/rules.d/10-tb-en.rules
+    mode: '0644'
+  when: enable_thunderbolt_ring | default(false)
+  notify: reload-udev
+  tags: [thunderbolt, udev]
+
+# ============================================
+# 3. Interface Activation Scripts
+# ============================================
+- name: Create interface activation scripts
+  template:
+    src: pve-tb-ifup.sh.j2
+    dest: "/usr/local/bin/pve-{{ item.name }}.sh"
+    mode: '0755'
+  loop: "{{ thunderbolt_interfaces }}"
+  when: enable_thunderbolt_ring | default(false)
+  tags: [thunderbolt, scripts]
+
+# ============================================
+# 4. Network Configuration
+# ============================================
+- name: Create thunderbolt network interfaces config
+  template:
+    src: interfaces-thunderbolt.j2
+    dest: /etc/network/interfaces.d/thunderbolt
+    mode: '0644'
+  when: enable_thunderbolt_ring | default(false)
+  notify: restart-networking
+  tags: [thunderbolt, network]
+
+- name: Add manual entries to main interfaces file
+  blockinfile:
+    path: /etc/network/interfaces
+    marker: "# {mark} ANSIBLE MANAGED - THUNDERBOLT INTERFACES"
+    block: |
+      {% for iface in thunderbolt_interfaces %}
+      iface {{ iface.name }} inet manual
+      #do not edit in GUI
+      {% endfor %}
+  when: enable_thunderbolt_ring | default(false)
+  tags: [thunderbolt, network]
+
+# ============================================
+# 5. Performance Tuning
+# ============================================
+- name: Create IRQ affinity script for thunderbolt
+  template:
+    src: thunderbolt-affinity.j2
+    dest: /etc/network/if-up.d/thunderbolt-affinity
+    mode: '0755'
+  when: enable_thunderbolt_ring | default(false)
+  tags: [thunderbolt, performance]
+
+# ============================================
+# 6. Install Diagnostics
+# ============================================
+- name: Install LLDP for link verification
+  apt:
+    name: lldpd
+    state: present
+  when: enable_thunderbolt_ring | default(false)
+  tags: [thunderbolt, tools]
+
+- name: Install iperf3 for bandwidth testing
+  apt:
+    name: iperf3
+    state: present
+  when: enable_thunderbolt_ring | default(false)
+  tags: [thunderbolt, tools]
+
+# ============================================
+# 7. Create Info File
+# ============================================
+- name: Create thunderbolt ring info file
+  copy:
+    dest: /root/thunderbolt-ring-info.txt
+    content: |
+      Thunderbolt Ring Network Configuration
+      ======================================
+      Node ID: {{ thunderbolt_node_id }}
+      Hostname: {{ inventory_hostname }}
+      Configured: {{ ansible_date_time.iso8601 }}
+
+      Interfaces:
+      {% for iface in thunderbolt_interfaces %}
+      - {{ iface.name }}: PCI {{ iface.pci_path }}
+      {% endfor %}
+
+      IP Addressing:
+      - Loopback IPv4: {{ thunderbolt_loopback_ipv4 }}/32
+      - Loopback IPv6: {{ thunderbolt_loopback_ipv6 }}/128
+      - Link-local: {{ thunderbolt_ipv4_base }}.{{ thunderbolt_node_id }}/24
+
+      Performance:
+      - MTU: {{ thunderbolt_mtu }}
+      - IRQ Affinity: cores {{ thunderbolt_perf_cores }}
+
+      Verification Commands:
+      - Check links: lldpctl
+      - Test bandwidth: iperf3 -c <neighbor_ip>
+      - View interfaces: ip addr show en05 en06
+      - Check modules: lsmod | grep thunderbolt
+
+      Expected Performance:
+      - TB4 Gen4: ~25-26 Gbps per link
+      - Ring provides redundancy if one link fails
+
+      Troubleshooting:
+      - Logs: /tmp/udev-debug.log
+      - Manual ifup: /usr/sbin/ifup en05
+    mode: '0644'
+  when: enable_thunderbolt_ring | default(false)
+  tags: [thunderbolt]
+
+- name: Display thunderbolt ring summary
+  debug:
+    msg: |
+      Thunderbolt Ring Configured!
+      ============================
+      Node: {{ inventory_hostname }} (ID: {{ thunderbolt_node_id }})
+      Interfaces: {{ thunderbolt_interfaces | map(attribute='name') | join(', ') }}
+      MTU: {{ thunderbolt_mtu }}
+
+      REBOOT REQUIRED to activate thunderbolt networking!
+
+      After reboot:
+      1. Connect TB4 cables in ring topology
+      2. Verify with: lldpctl
+      3. Test with: iperf3 -c <neighbor>
+  when: enable_thunderbolt_ring | default(false)
+  tags: [thunderbolt]

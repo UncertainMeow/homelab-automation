@@ -1,0 +1,9 @@
+# Thunderbolt interface naming - {{ item.name }}
+# Ansible managed - do not edit
+[Match]
+Path=pci-{{ item.pci_path }}
+Driver=thunderbolt-net
+
+[Link]
+MACAddressPolicy=none
+Name={{ item.name }}

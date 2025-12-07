@@ -1,0 +1,12 @@
+#!/bin/bash
+# Thunderbolt IRQ CPU affinity configuration
+# Ansible managed - do not edit
+# Pins TB interrupts to performance cores for best throughput
+
+if [ "$IFACE" = "en05" ] || [ "$IFACE" = "en06" ]; then
+    # Find thunderbolt IRQs and pin to P-cores
+    grep thunderbolt /proc/interrupts | cut -d ":" -f1 | \
+        xargs -I {} sh -c 'echo {{ thunderbolt_perf_cores }} > /proc/irq/{}/smp_affinity_list 2>/dev/null || true'
+
+    logger "Thunderbolt IRQ affinity set to cores {{ thunderbolt_perf_cores }} for $IFACE"
+fi

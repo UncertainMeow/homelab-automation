@@ -29,6 +29,11 @@
       tags: [tailscale-router, tailscale, phase4]
       when: create_tailscale_router | default(false)
 
+    # Phase 4b: Cluster Networking (MS-01 Thunderbolt Ring)
+    - role: thunderbolt-ring
+      tags: [thunderbolt, cluster, phase4]
+      when: enable_thunderbolt_ring | default(false)
+
     # Phase 5: Templates & Infrastructure
     - role: vm-templates
       tags: [vm-templates, templates, phase5]
