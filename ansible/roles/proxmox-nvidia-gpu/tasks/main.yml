@@ -1,0 +1,377 @@
+---
+# Proxmox NVIDIA GPU Role
+# Installs NVIDIA drivers and CUDA toolkit on Proxmox host
+# Optimized for Tesla P40 and datacenter GPUs
+
+# ============================================
+# Phase 1: Detection & Validation
+# ============================================
+
+- name: Detect NVIDIA GPUs
+  shell: lspci | grep -i nvidia
+  register: nvidia_gpu_detect
+  changed_when: false
+  failed_when: false
+  tags: [nvidia, detect]
+
+- name: Set GPU detection facts
+  set_fact:
+    has_nvidia_gpu: "{{ nvidia_gpu_detect.rc == 0 }}"
+    nvidia_gpu_list: "{{ nvidia_gpu_detect.stdout_lines | default([]) }}"
+    nvidia_gpu_count: "{{ nvidia_gpu_detect.stdout_lines | default([]) | length }}"
+  tags: [nvidia, detect]
+
+- name: Display GPU detection results
+  debug:
+    msg: |
+      NVIDIA GPU Detection:
+      ═══════════════════════════════════════
+      Found: {{ nvidia_gpu_count }} GPU(s)
+      {% for gpu in nvidia_gpu_list %}
+      • {{ gpu }}
+      {% endfor %}
+      {% if not has_nvidia_gpu %}
+      ⚠️  No NVIDIA GPUs detected - skipping driver installation
+      {% endif %}
+  tags: [nvidia, detect]
+
+- name: Skip if no NVIDIA GPUs found
+  meta: end_play
+  when: not has_nvidia_gpu
+  tags: [nvidia]
+
+# Identify Tesla/Datacenter vs Consumer GPUs
+- name: Check for Tesla/Datacenter GPUs
+  set_fact:
+    has_datacenter_gpu: "{{ 'Tesla' in nvidia_gpu_detect.stdout or 'A100' in nvidia_gpu_detect.stdout or 'V100' in nvidia_gpu_detect.stdout or 'P100' in nvidia_gpu_detect.stdout or 'P40' in nvidia_gpu_detect.stdout or 'A40' in nvidia_gpu_detect.stdout }}"
+  tags: [nvidia, detect]
+
+- name: Note datacenter GPU detected
+  debug:
+    msg: |
+      🏢 Datacenter GPU detected (Tesla/Professional series)
+      Using stable datacenter driver branch: {{ nvidia_driver_version }}
+      {% if 'P40' in nvidia_gpu_detect.stdout %}
+      Tesla P40 specific optimizations will be applied:
+      • Power limit: {{ nvidia_power_limit }}W
+      • Persistence mode: enabled
+      • Application clocks: {{ nvidia_p40_memory_clock }}/{{ nvidia_p40_graphics_clock }} MHz
+      {% endif %}
+  when: has_datacenter_gpu
+  tags: [nvidia, detect]
+
+# ============================================
+# Phase 2: Prerequisites
+# ============================================
+
+- name: Install build dependencies
+  apt:
+    name: "{{ nvidia_build_packages }}"
+    state: present
+    update_cache: yes
+  tags: [nvidia, packages]
+
+- name: Install utility packages
+  apt:
+    name: "{{ nvidia_utility_packages }}"
+    state: present
+  tags: [nvidia, packages]
+
+# ============================================
+# Phase 3: Check Existing Installation
+# ============================================
+
+- name: Check if NVIDIA driver is already installed
+  command: nvidia-smi --query-gpu=driver_version --format=csv,noheader
+  register: nvidia_installed_version
+  changed_when: false
+  failed_when: false
+  tags: [nvidia, check]
+
+- name: Set installed version fact
+  set_fact:
+    nvidia_currently_installed: "{{ nvidia_installed_version.rc == 0 }}"
+    nvidia_current_version: "{{ nvidia_installed_version.stdout | trim | default('none') }}"
+  tags: [nvidia, check]
+
+- name: Display current driver status
+  debug:
+    msg: |
+      Current NVIDIA Driver Status:
+      {% if nvidia_currently_installed %}
+      ✅ Driver installed: v{{ nvidia_current_version }}
+      {% if nvidia_current_version == nvidia_driver_version %}
+      ✅ Version matches target ({{ nvidia_driver_version }})
+      {% else %}
+      ⚠️  Version differs from target ({{ nvidia_driver_version }})
+      {% endif %}
+      {% else %}
+      ❌ No driver currently installed
+      {% endif %}
+  tags: [nvidia, check]
+
+# ============================================
+# Phase 4: Driver Installation (runfile method)
+# ============================================
+
+- name: Create NVIDIA download directory
+  file:
+    path: /root/nvidia-installers
+    state: directory
+    mode: '0755'
+  when: nvidia_install_method == 'runfile'
+  tags: [nvidia, install]
+
+- name: Download NVIDIA driver
+  get_url:
+    url: "{{ nvidia_driver_url }}"
+    dest: "/root/nvidia-installers/NVIDIA-Linux-x86_64-{{ nvidia_driver_version }}.run"
+    mode: '0755'
+  when:
+    - nvidia_install_method == 'runfile'
+    - not nvidia_currently_installed or nvidia_current_version != nvidia_driver_version
+  register: nvidia_download
+  tags: [nvidia, install]
+
+- name: Install NVIDIA driver with DKMS
+  command: >
+    /root/nvidia-installers/NVIDIA-Linux-x86_64-{{ nvidia_driver_version }}.run
+    --silent
+    --dkms
+    --no-questions
+    --ui=none
+  when:
+    - nvidia_install_method == 'runfile'
+    - nvidia_download.changed or not nvidia_currently_installed
+  register: nvidia_install
+  notify:
+    - update-initramfs
+    - reboot-required
+  tags: [nvidia, install]
+
+- name: Display driver installation result
+  debug:
+    msg: |
+      NVIDIA Driver Installation:
+      {{ 'SUCCESS' if nvidia_install.rc == 0 else 'FAILED' }}
+      {% if nvidia_install.rc != 0 %}
+      {{ nvidia_install.stderr | default('No error message') }}
+      {% endif %}
+  when: nvidia_install is defined and nvidia_install.changed
+  tags: [nvidia, install]
+
+# ============================================
+# Phase 5: CUDA Toolkit Installation
+# ============================================
+
+- name: Add NVIDIA CUDA repository key
+  get_url:
+    url: https://developer.download.nvidia.com/compute/cuda/repos/debian12/x86_64/cuda-keyring_1.1-1_all.deb
+    dest: /tmp/cuda-keyring.deb
+  tags: [nvidia, cuda]
+
+- name: Install CUDA keyring
+  apt:
+    deb: /tmp/cuda-keyring.deb
+  tags: [nvidia, cuda]
+
+- name: Update apt cache after adding CUDA repo
+  apt:
+    update_cache: yes
+  tags: [nvidia, cuda]
+
+- name: Install CUDA toolkit
+  apt:
+    name: "cuda-toolkit-{{ cuda_version }}"
+    state: present
+  tags: [nvidia, cuda]
+
+- name: Add CUDA to system PATH
+  lineinfile:
+    path: /etc/profile.d/cuda.sh
+    line: 'export PATH=/usr/local/cuda-{{ cuda_version_dot }}/bin${PATH:+:${PATH}}'
+    create: yes
+    mode: '0644'
+  tags: [nvidia, cuda]
+
+- name: Add CUDA library path
+  lineinfile:
+    path: /etc/ld.so.conf.d/cuda.conf
+    line: '/usr/local/cuda-{{ cuda_version_dot }}/lib64'
+    create: yes
+  notify: update-initramfs
+  tags: [nvidia, cuda]
+
+# ============================================
+# Phase 6: Power Management & Tuning (P40-specific)
+# ============================================
+
+- name: Enable persistence mode
+  command: nvidia-smi -pm 1
+  when: nvidia_persistence_mode
+  changed_when: false
+  failed_when: false
+  tags: [nvidia, tuning]
+
+- name: Set power limit
+  command: "nvidia-smi -pl {{ nvidia_power_limit }}"
+  when: nvidia_power_limit is defined
+  changed_when: false
+  failed_when: false
+  tags: [nvidia, tuning]
+
+- name: Set application clocks (P40)
+  command: "nvidia-smi -ac {{ nvidia_p40_memory_clock }},{{ nvidia_p40_graphics_clock }}"
+  when:
+    - nvidia_set_clocks
+    - "'P40' in nvidia_gpu_detect.stdout"
+  changed_when: false
+  failed_when: false
+  tags: [nvidia, tuning]
+
+- name: Check ECC status
+  command: nvidia-smi -q -d ECC
+  register: ecc_status
+  changed_when: false
+  failed_when: false
+  when: nvidia_enable_ecc
+  tags: [nvidia, tuning]
+
+- name: Create power management cron job
+  cron:
+    name: "NVIDIA power management on boot"
+    special_time: reboot
+    job: "nvidia-smi -pm 1 && nvidia-smi -pl {{ nvidia_power_limit }}"
+  tags: [nvidia, tuning]
+
+# ============================================
+# Phase 7: KVM Options for VM Compatibility
+# ============================================
+
+- name: Configure KVM options for NVIDIA passthrough
+  copy:
+    dest: /etc/modprobe.d/kvm.conf
+    content: |
+      # KVM options for NVIDIA GPU passthrough
+      # Prevents crashes in some Windows applications (e.g., GPU-Z)
+      options kvm ignore_msrs=1 report_ignored_msrs=0
+    mode: '0644'
+  when: nvidia_kvm_options
+  notify: update-initramfs
+  tags: [nvidia, kvm]
+
+# ============================================
+# Phase 8: Verification
+# ============================================
+
+- name: Verify NVIDIA driver installation
+  command: nvidia-smi
+  register: nvidia_smi_output
+  changed_when: false
+  when: nvidia_verify_installation
+  tags: [nvidia, verify]
+
+- name: Display nvidia-smi output
+  debug:
+    msg: "{{ nvidia_smi_output.stdout }}"
+  when: nvidia_verify_installation and nvidia_smi_output.rc == 0
+  tags: [nvidia, verify]
+
+- name: Get GPU device files
+  shell: ls -la /dev/nvidia* 2>/dev/null || echo "No nvidia devices found"
+  register: nvidia_devices
+  changed_when: false
+  tags: [nvidia, verify]
+
+- name: Display GPU device files
+  debug:
+    msg: |
+      NVIDIA Device Files:
+      {{ nvidia_devices.stdout }}
+  tags: [nvidia, verify]
+
+# ============================================
+# Phase 9: Create Info File
+# ============================================
+
+- name: Create NVIDIA GPU info file
+  copy:
+    dest: /root/nvidia-gpu-info.txt
+    content: |
+      NVIDIA GPU Configuration
+      ═══════════════════════════════════════════════════════════════
+      Configured: {{ ansible_date_time.iso8601 }}
+      Host: {{ inventory_hostname }}
+
+      Driver Information
+      ───────────────────────────────────────────────────────────────
+      Driver Version: {{ nvidia_driver_version }}
+      CUDA Toolkit: {{ cuda_version_dot }}
+      Install Method: {{ nvidia_install_method }}
+
+      GPUs Detected ({{ nvidia_gpu_count }})
+      ───────────────────────────────────────────────────────────────
+      {% for gpu in nvidia_gpu_list %}
+      {{ gpu }}
+      {% endfor %}
+
+      Power Management
+      ───────────────────────────────────────────────────────────────
+      Persistence Mode: {{ 'Enabled' if nvidia_persistence_mode else 'Disabled' }}
+      Power Limit: {{ nvidia_power_limit }}W
+      {% if 'P40' in nvidia_gpu_detect.stdout %}
+      Application Clocks: {{ nvidia_p40_memory_clock }}/{{ nvidia_p40_graphics_clock }} MHz
+      ECC Memory: {{ 'Enabled' if nvidia_enable_ecc else 'Disabled' }}
+      {% endif %}
+
+      Device Files
+      ───────────────────────────────────────────────────────────────
+      {{ nvidia_devices.stdout }}
+
+      LXC Container Configuration
+      ───────────────────────────────────────────────────────────────
+      To pass GPU to LXC containers, add to /etc/pve/lxc/<VMID>.conf:
+
+      # Get device numbers with: ls -la /dev/nvidia*
+      lxc.cgroup2.devices.allow: c 195:* rwm
+      lxc.cgroup2.devices.allow: c 509:* rwm
+      lxc.cgroup2.devices.allow: c 234:* rwm
+      lxc.mount.entry: /dev/nvidia0 dev/nvidia0 none bind,optional,create=file
+      lxc.mount.entry: /dev/nvidiactl dev/nvidiactl none bind,optional,create=file
+      lxc.mount.entry: /dev/nvidia-uvm dev/nvidia-uvm none bind,optional,create=file
+      lxc.mount.entry: /dev/nvidia-uvm-tools dev/nvidia-uvm-tools none bind,optional,create=file
+      lxc.mount.entry: /dev/nvidia-modeset dev/nvidia-modeset none bind,optional,create=file
+
+      Quick Commands
+      ───────────────────────────────────────────────────────────────
+      nvidia-smi                    # GPU status
+      nvtop                         # Interactive GPU monitor
+      nvidia-smi -pm 1              # Enable persistence mode
+      nvidia-smi -pl 250            # Set power limit
+      nvidia-smi -q                 # Full query
+      nvidia-smi -L                 # List GPUs
+    mode: '0644'
+  when: nvidia_create_info_file
+  tags: [nvidia, info]
+
+- name: Final status summary
+  debug:
+    msg: |
+      ╔══════════════════════════════════════════════════════════════╗
+      ║   NVIDIA GPU Setup Complete                                  ║
+      ╚══════════════════════════════════════════════════════════════╝
+
+      GPUs: {{ nvidia_gpu_count }}x detected
+      Driver: {{ nvidia_driver_version }}
+      CUDA: {{ cuda_version_dot }}
+
+      {% if nvidia_install is defined and nvidia_install.changed %}
+      ⚠️  REBOOT REQUIRED to load new drivers
+      {% else %}
+      ✅ Drivers already loaded
+      {% endif %}
+
+      Info file: /root/nvidia-gpu-info.txt
+
+      Next: Configure LXC containers with nvidia-lxc-ai role
+  tags: [nvidia, always]

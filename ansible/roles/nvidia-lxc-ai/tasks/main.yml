@@ -1,0 +1,113 @@
+---
+# nvidia-lxc-ai role - Main entry point
+# Creates and configures LXC containers with NVIDIA GPU passthrough
+
+- name: Validate prerequisites
+  assert:
+    that:
+      - ai_containers is defined
+      - ai_containers | length > 0
+    fail_msg: "No AI containers defined. Set ai_containers in host_vars."
+  tags: [nvidia-lxc, validate]
+
+- name: Check host has NVIDIA driver installed
+  command: nvidia-smi --query-gpu=driver_version --format=csv,noheader
+  register: host_driver_check
+  changed_when: false
+  failed_when: false
+  delegate_to: "{{ inventory_hostname }}"
+  tags: [nvidia-lxc, validate]
+
+- name: Fail if host driver not installed
+  fail:
+    msg: |
+      NVIDIA driver not found on host!
+      Run the proxmox-nvidia-gpu role first.
+  when: host_driver_check.rc != 0
+  tags: [nvidia-lxc, validate]
+
+- name: Set host driver version fact
+  set_fact:
+    host_nvidia_version: "{{ host_driver_check.stdout | trim }}"
+  tags: [nvidia-lxc, validate]
+
+- name: Warn if driver version mismatch
+  debug:
+    msg: |
+      ⚠️  WARNING: Driver version mismatch
+      Host driver: {{ host_nvidia_version }}
+      Role default: {{ nvidia_driver_version }}
+
+      Container driver MUST match host exactly.
+      Update nvidia_driver_version in your vars.
+  when: host_nvidia_version != nvidia_driver_version
+  tags: [nvidia-lxc, validate]
+
+# Get GPU device information for passthrough
+- name: Get NVIDIA device major numbers
+  shell: |
+    for dev in /dev/nvidia*; do
+      if [ -e "$dev" ]; then
+        stat -c "%n %t" "$dev" 2>/dev/null | awk '{printf "%s:%s\n", $1, $2}'
+      fi
+    done
+  register: nvidia_device_info
+  changed_when: false
+  tags: [nvidia-lxc, detect]
+
+- name: Parse device major numbers
+  set_fact:
+    nvidia_cgroup_majors:
+      - 195   # nvidia devices
+      - 509   # nvidia-uvm
+      - 234   # nvidia-caps
+  tags: [nvidia-lxc, detect]
+
+# Ensure model storage directory exists
+- name: Create model storage directory on host
+  file:
+    path: "{{ model_storage_host_path }}"
+    state: directory
+    mode: '0755'
+  when: mount_model_storage
+  tags: [nvidia-lxc, storage]
+
+# Process each container definition
+- name: Create and configure AI containers
+  include_tasks: create-container.yml
+  loop: "{{ ai_containers | dict2items }}"
+  loop_control:
+    loop_var: container
+    label: "{{ container.key }}"
+  tags: [nvidia-lxc, containers]
+
+# Install the mode switching script
+- name: Install mode switching script
+  include_tasks: install-script.yml
+  tags: [nvidia-lxc, script]
+
+# Final summary
+- name: Display AI setup summary
+  debug:
+    msg: |
+      ╔══════════════════════════════════════════════════════════════╗
+      ║   NVIDIA LXC AI Setup Complete                               ║
+      ╚══════════════════════════════════════════════════════════════╝
+
+      Containers created:
+      {% for name, config in ai_containers.items() %}
+      • {{ name }} (VMID {{ config.vmid }}) - GPUs: {{ config.gpus | default(['?']) | join(', ') }}
+      {% endfor %}
+
+      Model storage: {{ model_storage_host_path }} → {{ model_storage_container_path }}
+
+      Quick commands:
+      ─────────────────────────────────────────────────────────────────
+      socrates-ai status    # View current status
+      socrates-ai unified   # Start dual-GPU mode (48GB VRAM)
+      socrates-ai split     # Start split mode (2x 24GB)
+      socrates-ai stop      # Stop all AI containers
+
+      To enter a container:
+      pct enter <VMID>
+  tags: [nvidia-lxc, always]

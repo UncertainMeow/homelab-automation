@@ -1,0 +1,21 @@
+---
+# Handlers for proxmox-nvidia-gpu role
+
+- name: update-initramfs
+  command: update-initramfs -u -k all
+
+- name: reboot-required
+  debug:
+    msg: |
+      ⚠️  REBOOT REQUIRED
+      NVIDIA drivers have been installed/updated.
+      Please reboot the system to load the new drivers.
+
+      After reboot, verify with: nvidia-smi
+
+- name: reload-nvidia-modules
+  shell: |
+    rmmod nvidia_uvm nvidia_drm nvidia_modeset nvidia 2>/dev/null || true
+    modprobe nvidia
+    modprobe nvidia_uvm
+  failed_when: false

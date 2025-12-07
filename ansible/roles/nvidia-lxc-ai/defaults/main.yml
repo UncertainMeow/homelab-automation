@@ -1,0 +1,103 @@
+---
+# Default variables for nvidia-lxc-ai role
+# Creates and configures LXC containers with GPU passthrough
+
+# ============================================
+# Container Defaults
+# ============================================
+lxc_template: "local:vztmpl/debian-12-standard_12.7-1_amd64.tar.zst"
+lxc_storage: "local-lvm"
+lxc_default_cores: 16
+lxc_default_memory: 32768  # 32GB
+lxc_default_swap: 8192
+lxc_default_disk: "100G"
+lxc_default_bridge: "vmbr0"
+
+# Unprivileged container (more secure, works with GPU passthrough)
+lxc_unprivileged: true
+
+# Start on boot
+lxc_onboot: false
+
+# Container features
+lxc_features:
+  - nesting=1      # Allow Docker inside LXC
+  - keyctl=1       # Required for some operations
+
+# ============================================
+# NVIDIA Driver Configuration
+# ============================================
+# Must match host driver version exactly
+nvidia_driver_version: "550.127.05"
+nvidia_driver_runfile: "NVIDIA-Linux-x86_64-{{ nvidia_driver_version }}.run"
+
+# CUDA toolkit version
+cuda_version: "12-4"
+cuda_version_dot: "12.4"
+
+# ============================================
+# Docker Configuration
+# ============================================
+install_docker: true
+docker_compose_version: "v2.24.0"
+
+# nvidia-container-toolkit
+install_nvidia_container_toolkit: true
+
+# ============================================
+# Model Storage
+# ============================================
+# Bind mount for shared model storage
+model_storage_host_path: "/srv/ai-models"
+model_storage_container_path: "/models"
+mount_model_storage: true
+
+# ============================================
+# GPU Assignment Presets
+# ============================================
+# These define which GPUs each container profile can access
+gpu_profiles:
+  unified:
+    description: "Both GPUs for large models"
+    gpus: [0, 1]
+
+  gpu0:
+    description: "GPU 0 only"
+    gpus: [0]
+
+  gpu1:
+    description: "GPU 1 only"
+    gpus: [1]
+
+# ============================================
+# AI Container Definitions
+# ============================================
+# Override in host_vars for specific configurations
+ai_containers: {}
+# Example:
+#   ai_unified:
+#     vmid: 200
+#     hostname: "ai-unified"
+#     gpu_profile: unified
+#     cores: 32
+#     memory: 65536
+#     disk: "200G"
+#     description: "Dual-GPU for large models"
+
+# ============================================
+# Default Packages Inside Container
+# ============================================
+container_packages:
+  - curl
+  - wget
+  - git
+  - htop
+  - nvtop
+  - nano
+  - tmux
+  - python3
+  - python3-pip
+  - python3-venv
+  - build-essential
+  - ca-certificates
+  - gnupg

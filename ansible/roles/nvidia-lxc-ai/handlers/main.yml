@@ -1,0 +1,6 @@
+---
+# Handlers for nvidia-lxc-ai role
+
+- name: restart-container
+  command: "pct restart {{ ct_vmid }}"
+  failed_when: false

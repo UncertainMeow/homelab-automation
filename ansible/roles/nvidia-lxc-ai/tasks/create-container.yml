@@ -1,0 +1,212 @@
+---
+# Create and configure a single AI container with GPU passthrough
+# Called from main.yml with 'container' loop variable
+
+- name: "{{ container.key }} - Set container facts"
+  set_fact:
+    ct_name: "{{ container.key }}"
+    ct_vmid: "{{ container.value.vmid }}"
+    ct_hostname: "{{ container.value.hostname | default(container.key) }}"
+    ct_cores: "{{ container.value.cores | default(lxc_default_cores) }}"
+    ct_memory: "{{ container.value.memory | default(lxc_default_memory) }}"
+    ct_disk: "{{ container.value.disk | default(lxc_default_disk) }}"
+    ct_gpus: "{{ container.value.gpus | default(gpu_profiles[container.value.gpu_profile | default('gpu0')].gpus) }}"
+    ct_description: "{{ container.value.description | default('AI Container') }}"
+
+- name: "{{ ct_name }} - Check if container exists"
+  command: "pct status {{ ct_vmid }}"
+  register: ct_exists
+  changed_when: false
+  failed_when: false
+
+- name: "{{ ct_name }} - Create container"
+  command: >
+    pct create {{ ct_vmid }} {{ lxc_template }}
+    --hostname {{ ct_hostname }}
+    --cores {{ ct_cores }}
+    --memory {{ ct_memory }}
+    --swap {{ lxc_default_swap }}
+    --rootfs {{ lxc_storage }}:{{ ct_disk }}
+    --net0 name=eth0,bridge={{ lxc_default_bridge }},ip=dhcp
+    --features {{ lxc_features | join(',') }}
+    --unprivileged {{ '1' if lxc_unprivileged else '0' }}
+    --onboot {{ '1' if lxc_onboot else '0' }}
+    --description "{{ ct_description }}"
+  when: ct_exists.rc != 0
+  register: ct_created
+
+# Configure GPU passthrough in container config
+- name: "{{ ct_name }} - Add GPU cgroup permissions"
+  blockinfile:
+    path: "/etc/pve/lxc/{{ ct_vmid }}.conf"
+    marker: "# {mark} ANSIBLE MANAGED - GPU CGROUP PERMISSIONS"
+    block: |
+      lxc.cgroup2.devices.allow: c 195:* rwm
+      lxc.cgroup2.devices.allow: c 509:* rwm
+      lxc.cgroup2.devices.allow: c 234:* rwm
+
+- name: "{{ ct_name }} - Add GPU device mounts"
+  blockinfile:
+    path: "/etc/pve/lxc/{{ ct_vmid }}.conf"
+    marker: "# {mark} ANSIBLE MANAGED - GPU DEVICE MOUNTS"
+    block: |
+      {% for gpu_id in ct_gpus %}
+      lxc.mount.entry: /dev/nvidia{{ gpu_id }} dev/nvidia{{ gpu_id }} none bind,optional,create=file
+      {% endfor %}
+      lxc.mount.entry: /dev/nvidiactl dev/nvidiactl none bind,optional,create=file
+      lxc.mount.entry: /dev/nvidia-uvm dev/nvidia-uvm none bind,optional,create=file
+      lxc.mount.entry: /dev/nvidia-uvm-tools dev/nvidia-uvm-tools none bind,optional,create=file
+      lxc.mount.entry: /dev/nvidia-modeset dev/nvidia-modeset none bind,optional,create=file
+      lxc.mount.entry: /dev/nvidia-caps/nvidia-cap1 dev/nvidia-caps/nvidia-cap1 none bind,optional,create=file
+      lxc.mount.entry: /dev/nvidia-caps/nvidia-cap2 dev/nvidia-caps/nvidia-cap2 none bind,optional,create=file
+
+# Add model storage bind mount
+- name: "{{ ct_name }} - Add model storage mount"
+  lineinfile:
+    path: "/etc/pve/lxc/{{ ct_vmid }}.conf"
+    line: "mp0: {{ model_storage_host_path }},mp={{ model_storage_container_path }}"
+    regexp: "^mp0:.*{{ model_storage_container_path }}"
+  when: mount_model_storage
+
+# Start container for further configuration
+- name: "{{ ct_name }} - Start container"
+  command: "pct start {{ ct_vmid }}"
+  register: ct_start
+  failed_when: false
+  changed_when: ct_start.rc == 0
+
+- name: "{{ ct_name }} - Wait for container to be ready"
+  pause:
+    seconds: 10
+  when: ct_start.changed
+
+# Configure inside the container
+- name: "{{ ct_name }} - Update package lists"
+  command: "pct exec {{ ct_vmid }} -- apt-get update"
+  changed_when: false
+
+- name: "{{ ct_name }} - Install base packages"
+  command: "pct exec {{ ct_vmid }} -- apt-get install -y {{ container_packages | join(' ') }}"
+  changed_when: false
+
+# Push NVIDIA driver installer to container
+- name: "{{ ct_name }} - Check if driver installer exists on host"
+  stat:
+    path: "/root/nvidia-installers/{{ nvidia_driver_runfile }}"
+  register: driver_file
+
+- name: "{{ ct_name }} - Push NVIDIA driver to container"
+  command: "pct push {{ ct_vmid }} /root/nvidia-installers/{{ nvidia_driver_runfile }} /root/{{ nvidia_driver_runfile }}"
+  when: driver_file.stat.exists
+
+- name: "{{ ct_name }} - Make driver executable"
+  command: "pct exec {{ ct_vmid }} -- chmod +x /root/{{ nvidia_driver_runfile }}"
+  when: driver_file.stat.exists
+
+- name: "{{ ct_name }} - Install NVIDIA driver (no kernel modules)"
+  command: "pct exec {{ ct_vmid }} -- /root/{{ nvidia_driver_runfile }} --no-kernel-modules --silent --no-questions"
+  register: driver_install
+  failed_when: false
+  when: driver_file.stat.exists
+
+- name: "{{ ct_name }} - Install CUDA keyring"
+  command: >
+    pct exec {{ ct_vmid }} -- bash -c "
+    wget -q https://developer.download.nvidia.com/compute/cuda/repos/debian12/x86_64/cuda-keyring_1.1-1_all.deb -O /tmp/cuda-keyring.deb &&
+    dpkg -i /tmp/cuda-keyring.deb &&
+    apt-get update
+    "
+  changed_when: false
+
+- name: "{{ ct_name }} - Install CUDA toolkit"
+  command: "pct exec {{ ct_vmid }} -- apt-get install -y cuda-toolkit-{{ cuda_version }}"
+  changed_when: false
+
+# Docker installation
+- name: "{{ ct_name }} - Install Docker"
+  command: >
+    pct exec {{ ct_vmid }} -- bash -c "
+    curl -fsSL https://get.docker.com | sh
+    "
+  when: install_docker
+  changed_when: false
+
+# nvidia-container-toolkit
+- name: "{{ ct_name }} - Install nvidia-container-toolkit"
+  command: >
+    pct exec {{ ct_vmid }} -- bash -c "
+    curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg &&
+    curl -s -L https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list |
+      sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' |
+      tee /etc/apt/sources.list.d/nvidia-container-toolkit.list &&
+    apt-get update &&
+    apt-get install -y nvidia-container-toolkit
+    "
+  when: install_nvidia_container_toolkit
+  changed_when: false
+
+# Configure nvidia-container-runtime for LXC compatibility
+- name: "{{ ct_name }} - Configure nvidia-container-runtime (no-cgroups)"
+  command: >
+    pct exec {{ ct_vmid }} -- bash -c "
+    mkdir -p /etc/nvidia-container-runtime &&
+    cat > /etc/nvidia-container-runtime/config.toml << 'EOF'
+    disable-require = false
+    [nvidia-container-cli]
+    no-cgroups = true
+    EOF
+    "
+  when: install_nvidia_container_toolkit
+  changed_when: false
+
+- name: "{{ ct_name }} - Configure Docker for NVIDIA runtime"
+  command: "pct exec {{ ct_vmid }} -- nvidia-ctk runtime configure --runtime=docker"
+  when: install_docker and install_nvidia_container_toolkit
+  changed_when: false
+
+- name: "{{ ct_name }} - Restart Docker"
+  command: "pct exec {{ ct_vmid }} -- systemctl restart docker"
+  when: install_docker
+  changed_when: false
+
+# Verify GPU access
+- name: "{{ ct_name }} - Verify nvidia-smi in container"
+  command: "pct exec {{ ct_vmid }} -- nvidia-smi -L"
+  register: container_gpu_check
+  changed_when: false
+  failed_when: false
+
+- name: "{{ ct_name }} - Display container GPU status"
+  debug:
+    msg: |
+      Container: {{ ct_name }} (VMID: {{ ct_vmid }})
+      ═══════════════════════════════════════════════
+      GPUs assigned: {{ ct_gpus | join(', ') }}
+
+      nvidia-smi output:
+      {{ container_gpu_check.stdout | default('GPU check failed') }}
+
+      {% if container_gpu_check.rc != 0 %}
+      ⚠️  GPU access may require container restart
+      {% else %}
+      ✅ GPU access verified
+      {% endif %}
+
+# Stop container after configuration (user can start as needed)
+- name: "{{ ct_name }} - Stop container after configuration"
+  command: "pct stop {{ ct_vmid }}"
+  changed_when: false
+  failed_when: false
+
+- name: "{{ ct_name }} - Configuration complete"
+  debug:
+    msg: |
+      ✅ Container {{ ct_name }} configured successfully
+
+      VMID: {{ ct_vmid }}
+      GPUs: {{ ct_gpus | join(', ') }}
+      Memory: {{ ct_memory }}MB
+      Cores: {{ ct_cores }}
+
+      To start: pct start {{ ct_vmid }}
+      To enter: pct enter {{ ct_vmid }}

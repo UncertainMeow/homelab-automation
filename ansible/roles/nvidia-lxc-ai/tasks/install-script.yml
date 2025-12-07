@@ -1,0 +1,23 @@
+---
+# Install the socrates-ai mode switching script
+
+- name: Install socrates-ai script
+  copy:
+    src: socrates-ai
+    dest: /usr/local/bin/socrates-ai
+    mode: '0755'
+    owner: root
+    group: root
+  tags: [nvidia-lxc, script]
+
+- name: Create bash completion for socrates-ai
+  copy:
+    dest: /etc/bash_completion.d/socrates-ai
+    content: |
+      _socrates_ai() {
+          local cur="${COMP_WORDS[COMP_CWORD]}"
+          COMPREPLY=( $(compgen -W "unified split stop status gpu help" -- "$cur") )
+      }
+      complete -F _socrates_ai socrates-ai
+    mode: '0644'
+  tags: [nvidia-lxc, script]

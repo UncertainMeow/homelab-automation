@@ -1,0 +1,54 @@
+---
+# Default variables for proxmox-nvidia-gpu role
+# Optimized for Tesla P40 and datacenter GPUs
+
+# Driver Configuration
+# Use stable datacenter branch, not bleeding edge consumer drivers
+nvidia_driver_version: "550.127.05"
+nvidia_driver_branch: "550"  # For apt-based fallback
+
+# CUDA Toolkit version (12.4 is stable for Pascal architecture)
+cuda_version: "12-4"
+cuda_version_dot: "12.4"
+
+# Driver installation method: "runfile" or "apt"
+# runfile: More control, works on Proxmox's Debian base
+# apt: Easier updates, but may lag behind
+nvidia_install_method: "runfile"
+
+# Download URLs (will be templated)
+nvidia_driver_url: "https://us.download.nvidia.com/tesla/{{ nvidia_driver_version }}/NVIDIA-Linux-x86_64-{{ nvidia_driver_version }}.run"
+
+# Power Management (P40-specific)
+# P40 TDP is 250W, these are safe defaults
+nvidia_power_limit: 250           # Watts
+nvidia_persistence_mode: true     # Keep driver loaded
+nvidia_set_clocks: true           # Set optimal application clocks
+nvidia_p40_memory_clock: 715      # MHz (P40 optimal)
+nvidia_p40_graphics_clock: 1531   # MHz (P40 optimal)
+
+# ECC Memory (P40 supports ECC)
+nvidia_enable_ecc: true
+
+# KVM options for VM compatibility
+nvidia_kvm_options: true
+
+# Build dependencies for DKMS
+nvidia_build_packages:
+  - build-essential
+  - dkms
+  - pve-headers-{{ ansible_kernel }}
+  - make
+  - gcc
+  - pkg-config
+  - libglvnd-dev
+
+# Utility packages
+nvidia_utility_packages:
+  - nvtop
+  - htop
+  - btop
+
+# Verification settings
+nvidia_verify_installation: true
+nvidia_create_info_file: true

@@ -1,0 +1,120 @@
+---
+# Socrates - Dell R730 with 2x Tesla P40 GPUs
+# AI Workstation configuration
+
+# ============================================
+# Host Description
+# ============================================
+host_description: "Dell R730 - AI Workstation with 2x Tesla P40"
+
+# ============================================
+# NVIDIA Driver Configuration
+# ============================================
+# Using stable datacenter driver branch for Tesla P40
+nvidia_driver_version: "550.127.05"
+nvidia_driver_branch: "550"
+cuda_version: "12-4"
+cuda_version_dot: "12.4"
+
+# P40-specific power management
+nvidia_power_limit: 250           # P40 TDP
+nvidia_p40_memory_clock: 715      # MHz
+nvidia_p40_graphics_clock: 1531   # MHz
+
+# ============================================
+# PCI Passthrough
+# ============================================
+enable_pci_passthrough: true
+enable_nvidia_setup: true
+
+# ============================================
+# Model Storage Configuration
+# ============================================
+# Local SSD storage for AI models (faster than NAS)
+model_storage_host_path: "/srv/ai-models"
+mount_model_storage: true
+
+# ============================================
+# AI Container Definitions
+# ============================================
+# Three container profiles for flexibility:
+# - ai-unified: Both GPUs for large models (70B+)
+# - ai-gpu0: GPU 0 only for experimentation
+# - ai-gpu1: GPU 1 only for secondary workloads
+#
+# IMPORTANT: Only ONE container per GPU can run at a time!
+# Use socrates-ai script to switch between modes.
+
+ai_containers:
+  # Unified mode - Both GPUs (48GB VRAM total)
+  # Use for: vLLM tensor parallelism, large models
+  ai-unified:
+    vmid: 200
+    hostname: "ai-unified"
+    gpus: [0, 1]
+    cores: 40
+    memory: 131072       # 128GB - leave room for host
+    disk: "200G"
+    description: |
+      Dual-GPU AI Container (48GB VRAM)
+      - vLLM with tensor_parallel_size=2
+      - Large models (70B+ parameters)
+      - Maximum performance mode
+
+  # Split mode - GPU 0 only
+  # Use for: Ollama, smaller models, experimentation
+  ai-gpu0:
+    vmid: 201
+    hostname: "ai-gpu0"
+    gpus: [0]
+    cores: 20
+    memory: 65536        # 64GB
+    disk: "100G"
+    description: |
+      Single GPU Container (GPU 0 - 24GB VRAM)
+      - Ollama / experimentation
+      - Smaller models
+      - Testing and development
+
+  # Split mode - GPU 1 only
+  # Use for: Secondary workloads, Stable Diffusion, etc.
+  ai-gpu1:
+    vmid: 202
+    hostname: "ai-gpu1"
+    gpus: [1]
+    cores: 20
+    memory: 65536        # 64GB
+    disk: "100G"
+    description: |
+      Single GPU Container (GPU 1 - 24GB VRAM)
+      - Secondary workloads
+      - Stable Diffusion
+      - Parallel experimentation
+
+# ============================================
+# Container Defaults (Socrates-specific)
+# ============================================
+lxc_template: "local:vztmpl/debian-12-standard_12.7-1_amd64.tar.zst"
+lxc_storage: "local-lvm"
+lxc_default_bridge: "vmbr0"
+
+# ============================================
+# Tailscale Beacon
+# ============================================
+create_tailscale_router: true
+tailscale_router_hostname: "tsb-socrates"
+
+# ============================================
+# Phase Control
+# ============================================
+# Enable all phases for full setup
+create_vm_templates: false    # Not needed on AI workstation
+download_lxc_templates: true  # Need Debian template
+deploy_dotfiles: true
+generate_snapshot: true
+
+# ============================================
+# Thunderbolt Ring (if connected to MS-01 cluster)
+# ============================================
+# Socrates is standalone, not part of TB ring
+enable_thunderbolt_ring: false

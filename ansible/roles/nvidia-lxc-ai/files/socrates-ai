@@ -1,0 +1,261 @@
+#!/bin/bash
+# socrates-ai - AI Container Mode Switcher
+# Orchestrates GPU allocation between unified and split modes
+#
+# Usage:
+#   socrates-ai unified    # Start dual-GPU container (48GB VRAM)
+#   socrates-ai split      # Start split-GPU containers (24GB each)
+#   socrates-ai status     # Show current status
+#   socrates-ai stop       # Stop all AI containers
+#   socrates-ai gpu        # Show GPU status
+#
+# Container IDs:
+#   200 = ai-unified (both GPUs)
+#   201 = ai-gpu0 (GPU 0)
+#   202 = ai-gpu1 (GPU 1)
+
+set -e
+
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
+
+# Container VMIDs
+CT_UNIFIED=200
+CT_GPU0=201
+CT_GPU1=202
+
+# Helper functions
+log_info() { echo -e "${BLUE}[INFO]${NC} $1"; }
+log_ok() { echo -e "${GREEN}[OK]${NC} $1"; }
+log_warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
+log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
+
+get_status() {
+    local vmid=$1
+    pct status $vmid 2>/dev/null | awk '{print $2}'
+}
+
+is_running() {
+    [ "$(get_status $1)" = "running" ]
+}
+
+stop_container() {
+    local vmid=$1
+    local name=$2
+    if is_running $vmid; then
+        log_info "Stopping $name (VMID $vmid)..."
+        pct stop $vmid
+        sleep 2
+        log_ok "$name stopped"
+    fi
+}
+
+start_container() {
+    local vmid=$1
+    local name=$2
+    if ! is_running $vmid; then
+        log_info "Starting $name (VMID $vmid)..."
+        pct start $vmid
+        sleep 3
+        if is_running $vmid; then
+            log_ok "$name started"
+        else
+            log_error "Failed to start $name"
+            return 1
+        fi
+    else
+        log_warn "$name already running"
+    fi
+}
+
+cmd_unified() {
+    echo ""
+    echo "═══════════════════════════════════════════════════════════════"
+    echo "  Switching to UNIFIED mode (48GB VRAM - both GPUs)"
+    echo "═══════════════════════════════════════════════════════════════"
+    echo ""
+
+    # Stop split containers if running
+    stop_container $CT_GPU0 "ai-gpu0"
+    stop_container $CT_GPU1 "ai-gpu1"
+
+    # Wait for GPUs to be released
+    sleep 2
+
+    # Start unified container
+    start_container $CT_UNIFIED "ai-unified"
+
+    echo ""
+    log_ok "Unified mode active"
+    echo ""
+    echo "Container: ai-unified (VMID $CT_UNIFIED)"
+    echo "GPUs: 0 + 1 (48GB total VRAM)"
+    echo ""
+    echo "Enter container: pct enter $CT_UNIFIED"
+    echo ""
+}
+
+cmd_split() {
+    echo ""
+    echo "═══════════════════════════════════════════════════════════════"
+    echo "  Switching to SPLIT mode (2x 24GB VRAM - separate GPUs)"
+    echo "═══════════════════════════════════════════════════════════════"
+    echo ""
+
+    # Stop unified container if running
+    stop_container $CT_UNIFIED "ai-unified"
+
+    # Wait for GPUs to be released
+    sleep 2
+
+    # Start split containers
+    start_container $CT_GPU0 "ai-gpu0"
+    start_container $CT_GPU1 "ai-gpu1"
+
+    echo ""
+    log_ok "Split mode active"
+    echo ""
+    echo "Container 1: ai-gpu0 (VMID $CT_GPU0) - GPU 0 (24GB)"
+    echo "Container 2: ai-gpu1 (VMID $CT_GPU1) - GPU 1 (24GB)"
+    echo ""
+    echo "Enter containers:"
+    echo "  pct enter $CT_GPU0"
+    echo "  pct enter $CT_GPU1"
+    echo ""
+}
+
+cmd_stop() {
+    echo ""
+    echo "═══════════════════════════════════════════════════════════════"
+    echo "  Stopping all AI containers"
+    echo "═══════════════════════════════════════════════════════════════"
+    echo ""
+
+    stop_container $CT_UNIFIED "ai-unified"
+    stop_container $CT_GPU0 "ai-gpu0"
+    stop_container $CT_GPU1 "ai-gpu1"
+
+    echo ""
+    log_ok "All AI containers stopped"
+    echo ""
+}
+
+cmd_status() {
+    echo ""
+    echo "═══════════════════════════════════════════════════════════════"
+    echo "  Socrates AI Status"
+    echo "═══════════════════════════════════════════════════════════════"
+    echo ""
+
+    # Container status
+    echo "Containers:"
+    echo "───────────────────────────────────────────────────────────────"
+    printf "  %-15s %-10s %-10s %s\n" "NAME" "VMID" "STATUS" "GPUs"
+
+    status=$(get_status $CT_UNIFIED)
+    if [ "$status" = "running" ]; then
+        printf "  ${GREEN}%-15s${NC} %-10s ${GREEN}%-10s${NC} %s\n" "ai-unified" "$CT_UNIFIED" "$status" "0, 1"
+    else
+        printf "  %-15s %-10s %-10s %s\n" "ai-unified" "$CT_UNIFIED" "${status:-stopped}" "0, 1"
+    fi
+
+    status=$(get_status $CT_GPU0)
+    if [ "$status" = "running" ]; then
+        printf "  ${GREEN}%-15s${NC} %-10s ${GREEN}%-10s${NC} %s\n" "ai-gpu0" "$CT_GPU0" "$status" "0"
+    else
+        printf "  %-15s %-10s %-10s %s\n" "ai-gpu0" "$CT_GPU0" "${status:-stopped}" "0"
+    fi
+
+    status=$(get_status $CT_GPU1)
+    if [ "$status" = "running" ]; then
+        printf "  ${GREEN}%-15s${NC} %-10s ${GREEN}%-10s${NC} %s\n" "ai-gpu1" "$CT_GPU1" "$status" "1"
+    else
+        printf "  %-15s %-10s %-10s %s\n" "ai-gpu1" "$CT_GPU1" "${status:-stopped}" "1"
+    fi
+
+    echo ""
+
+    # Determine current mode
+    if is_running $CT_UNIFIED; then
+        echo -e "Current Mode: ${GREEN}UNIFIED${NC} (48GB VRAM)"
+    elif is_running $CT_GPU0 || is_running $CT_GPU1; then
+        echo -e "Current Mode: ${BLUE}SPLIT${NC} (2x 24GB VRAM)"
+    else
+        echo -e "Current Mode: ${YELLOW}IDLE${NC} (no AI containers running)"
+    fi
+
+    echo ""
+}
+
+cmd_gpu() {
+    echo ""
+    echo "═══════════════════════════════════════════════════════════════"
+    echo "  GPU Status"
+    echo "═══════════════════════════════════════════════════════════════"
+    echo ""
+
+    nvidia-smi --query-gpu=index,name,temperature.gpu,power.draw,memory.used,memory.total,utilization.gpu --format=csv
+
+    echo ""
+    echo "Detailed view: nvidia-smi or nvtop"
+    echo ""
+}
+
+cmd_help() {
+    echo ""
+    echo "socrates-ai - AI Container Mode Switcher"
+    echo ""
+    echo "Usage: socrates-ai <command>"
+    echo ""
+    echo "Commands:"
+    echo "  unified    Switch to unified mode (both GPUs → ai-unified)"
+    echo "             Use for large models requiring 48GB VRAM"
+    echo ""
+    echo "  split      Switch to split mode (GPU 0 → ai-gpu0, GPU 1 → ai-gpu1)"
+    echo "             Use for running two separate workloads"
+    echo ""
+    echo "  stop       Stop all AI containers"
+    echo ""
+    echo "  status     Show current container and GPU status"
+    echo ""
+    echo "  gpu        Show GPU status (nvidia-smi)"
+    echo ""
+    echo "  help       Show this help message"
+    echo ""
+    echo "Examples:"
+    echo "  socrates-ai unified          # Run large 70B model"
+    echo "  socrates-ai split            # Run Ollama + Stable Diffusion separately"
+    echo "  socrates-ai stop && reboot   # Prepare for maintenance"
+    echo ""
+}
+
+# Main
+case "${1:-help}" in
+    unified|u)
+        cmd_unified
+        ;;
+    split|s)
+        cmd_split
+        ;;
+    stop)
+        cmd_stop
+        ;;
+    status|st)
+        cmd_status
+        ;;
+    gpu|g)
+        cmd_gpu
+        ;;
+    help|h|-h|--help)
+        cmd_help
+        ;;
+    *)
+        log_error "Unknown command: $1"
+        cmd_help
+        exit 1
+        ;;
+esac

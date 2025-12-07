@@ -24,6 +24,11 @@
       tags: [nvidia, gpu, phase3]
       when: enable_nvidia_setup | default(true)
 
+    # Phase 3b: AI Container Setup (requires GPU setup first)
+    - role: nvidia-lxc-ai
+      tags: [nvidia-lxc, ai-containers, phase3]
+      when: ai_containers is defined and ai_containers | length > 0
+
     # Phase 4: Networking & Access
     - role: tailscale-subnet-router
       tags: [tailscale-router, tailscale, phase4]
