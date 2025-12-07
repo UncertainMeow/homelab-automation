@@ -118,6 +118,6 @@ dotfiles_modules:
 # ============================================
 # Infrastructure Snapshot
 # ============================================
-generate_snapshot: false  # Set true to generate baseball card
+generate_snapshot: true  # Generate infrastructure "baseball card"
 
 snapshot_output_dir: "/root/snapshots"
