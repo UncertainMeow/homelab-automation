@@ -1,0 +1,43 @@
+---
+# VM Templates Role
+# Creates cloud-init ready VM templates for rapid deployment
+# Image URLs defined in defaults/main.yml
+
+- name: Validate VM templates configuration
+  assert:
+    that:
+      - vm_templates is defined
+    fail_msg: "Missing vm_templates configuration. Check group_vars/proxmox.yml"
+  when: create_vm_templates | default(false)
+  tags: [vm-templates]
+
+# Process each enabled template
+- name: Create VM templates
+  include_tasks: create_template.yml
+  loop: "{{ vm_templates | dict2items }}"
+  loop_control:
+    loop_var: template
+    label: "{{ template.key }}"
+  when:
+    - create_vm_templates | default(false)
+    - template.value.enabled | default(false)
+  tags: [vm-templates]
+
+- name: Display VM templates summary
+  debug:
+    msg: |
+      VM Templates Created
+      ====================
+      {% for name, config in vm_templates.items() %}
+      {% if config.enabled | default(false) %}
+      - {{ config.name }} (VMID: {{ config.vmid }})
+        Specs: {{ config.cores }} cores, {{ config.memory }}MB RAM, {{ config.disk }}GB disk
+      {% endif %}
+      {% endfor %}
+
+      Usage:
+      - Clone via UI: Right-click template → Clone
+      - Clone via CLI: qm clone <vmid> <new-vmid> --name <name>
+      - Full clone recommended for production VMs
+  when: create_vm_templates | default(false)
+  tags: [vm-templates]

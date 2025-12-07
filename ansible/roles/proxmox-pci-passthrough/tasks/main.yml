@@ -2,6 +2,20 @@
 # Proxmox PCI Passthrough Role
 # Enables IOMMU and VFIO for GPU/device passthrough
 
+# Detect CPU vendor for correct IOMMU parameter
+- name: Detect CPU vendor
+  shell: lscpu | grep -i 'vendor' | awk '{print tolower($3)}'
+  register: cpu_vendor_check
+  changed_when: false
+  tags: [pci-passthrough, detect]
+
+- name: Set CPU vendor fact
+  set_fact:
+    cpu_is_intel: "{{ 'intel' in cpu_vendor_check.stdout }}"
+    cpu_is_amd: "{{ 'amd' in cpu_vendor_check.stdout }}"
+    iommu_param: "{{ 'intel_iommu=on' if 'intel' in cpu_vendor_check.stdout else 'amd_iommu=on' }}"
+  tags: [pci-passthrough, detect]
+
 - name: Check for NVIDIA GPUs
   shell: lspci | grep -i nvidia
   register: nvidia_check
@@ -26,7 +40,9 @@
 - name: Display GPU detection results
   debug:
     msg: |
-      GPU Detection:
+      CPU/GPU Detection:
+      - CPU Vendor: {{ 'Intel' if cpu_is_intel else 'AMD' if cpu_is_amd else 'Unknown' }}
+      - IOMMU Parameter: {{ iommu_param }}
       - NVIDIA GPU: {{ 'Found' if has_nvidia_gpu else 'Not found' }}
       - AMD GPU: {{ 'Found' if has_amd_gpu else 'Not found' }}
       - PCI Passthrough: {{ 'Will be configured' if has_any_gpu or force_pci_passthrough else 'Skipped (no GPU)' }}
@@ -59,7 +75,7 @@
   lineinfile:
     path: /etc/default/grub
     regexp: '^GRUB_CMDLINE_LINUX_DEFAULT='
-    line: 'GRUB_CMDLINE_LINUX_DEFAULT="quiet intel_iommu=on iommu=pt"'
+    line: 'GRUB_CMDLINE_LINUX_DEFAULT="quiet {{ iommu_param }} iommu=pt"'
     backup: yes
   when: (has_any_gpu or force_pci_passthrough | default(false)) and uses_grub | default(false)
   notify: update-grub
@@ -77,12 +93,12 @@
   lineinfile:
     path: /etc/kernel/cmdline
     regexp: '^root='
-    line: "{{ cmdline_content['content'] | b64decode | trim }} intel_iommu=on iommu=pt"
+    line: "{{ cmdline_content['content'] | b64decode | trim }} {{ iommu_param }} iommu=pt"
     backup: yes
   when:
     - (has_any_gpu or force_pci_passthrough | default(false))
     - uses_systemd_boot | default(false)
-    - "'intel_iommu=on' not in cmdline_content['content'] | b64decode"
+    - "iommu_param not in cmdline_content['content'] | b64decode"
   notify: refresh-pve-efiboot
   tags: [pci-passthrough, systemd-boot]
 
@@ -132,6 +148,8 @@
       PCI Passthrough Configuration
       =============================
       Configured: {{ ansible_date_time.iso8601 }}
+      CPU Vendor: {{ 'Intel' if cpu_is_intel else 'AMD' if cpu_is_amd else 'Unknown' }}
+      IOMMU Parameter: {{ iommu_param }}
       Boot Manager: {{ 'GRUB' if uses_grub else 'systemd-boot' if uses_systemd_boot else 'Unknown' }}
 
       GPUs Detected:

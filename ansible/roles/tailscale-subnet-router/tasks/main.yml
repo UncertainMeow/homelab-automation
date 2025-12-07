@@ -2,6 +2,18 @@
 # Tailscale Subnet Router Role
 # Creates emergency access "beacon" LXC container
 
+# Validate required variables
+- name: Validate Tailscale configuration
+  assert:
+    that:
+      - tailscale_router_id is defined
+      - tailscale_router_hostname is defined
+      - tailscale_subnet_routes is defined
+      - tailscale_subnet_routes | length > 0
+    fail_msg: "Missing required Tailscale configuration. Check group_vars/proxmox.yml"
+  when: create_tailscale_router | default(false)
+  tags: [tailscale-router]
+
 - name: Check if Tailscale router container exists
   shell: pct list | grep -w "{{ tailscale_router_id }}"
   register: container_check
@@ -10,19 +22,47 @@
   when: create_tailscale_router | default(false)
   tags: [tailscale-router]
 
-- name: Download Alpine Linux LXC template
-  shell: pveam download local alpine-3.19-default_20240207_amd64.tar.xz
-  args:
-    creates: /var/lib/vz/template/cache/alpine-3.19-default_20240207_amd64.tar.xz
+# Dynamic template discovery - no more hardcoded versions!
+- name: Update template list from Proxmox repos
+  shell: pveam update
+  changed_when: false
   when:
     - create_tailscale_router | default(false)
     - container_check.rc != 0
   tags: [tailscale-router]
 
+- name: Find latest Alpine LXC template
+  shell: pveam available --section system | grep -E '^alpine-[0-9]' | sort -V | tail -1 | awk '{print $1}'
+  register: alpine_template
+  changed_when: false
+  when:
+    - create_tailscale_router | default(false)
+    - container_check.rc != 0
+  tags: [tailscale-router]
+
+- name: Display discovered template
+  debug:
+    msg: "Using Alpine template: {{ alpine_template.stdout }}"
+  when:
+    - create_tailscale_router | default(false)
+    - container_check.rc != 0
+    - alpine_template.stdout | length > 0
+  tags: [tailscale-router]
+
+- name: Download Alpine Linux LXC template
+  shell: pveam download local {{ alpine_template.stdout }}
+  args:
+    creates: "/var/lib/vz/template/cache/{{ alpine_template.stdout }}"
+  when:
+    - create_tailscale_router | default(false)
+    - container_check.rc != 0
+    - alpine_template.stdout | length > 0
+  tags: [tailscale-router]
+
 - name: Create Tailscale router LXC container
   shell: |
     pct create {{ tailscale_router_id }} \
-      /var/lib/vz/template/cache/alpine-3.19-default_20240207_amd64.tar.xz \
+      /var/lib/vz/template/cache/{{ alpine_template.stdout }} \
       --hostname {{ tailscale_router_hostname }} \
       --cores {{ tailscale_router_cores }} \
       --memory {{ tailscale_router_memory }} \
@@ -36,6 +76,16 @@
     - create_tailscale_router | default(false)
     - container_check.rc != 0
   register: lxc_created
+  tags: [tailscale-router]
+
+- name: Configure TUN device access for Tailscale
+  lineinfile:
+    path: /etc/pve/lxc/{{ tailscale_router_id }}.conf
+    line: "{{ item }}"
+  loop:
+    - "lxc.cgroup2.devices.allow: c 10:200 rwm"
+    - "lxc.mount.entry: /dev/net/tun dev/net/tun none bind,create=file"
+  when: lxc_created is changed
   tags: [tailscale-router]
 
 - name: Start Tailscale router container
@@ -56,6 +106,15 @@
       apk add --no-cache tailscale iptables ip6tables &&
       rc-update add tailscale &&
       rc-service tailscale start
+    "
+  when: lxc_created is changed
+  tags: [tailscale-router]
+
+- name: Enable IP forwarding in container
+  shell: |
+    pct exec {{ tailscale_router_id }} -- sh -c "
+      echo 'net.ipv4.ip_forward = 1' >> /etc/sysctl.conf &&
+      sysctl -p
     "
   when: lxc_created is changed
   tags: [tailscale-router]

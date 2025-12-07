@@ -1,0 +1,116 @@
+---
+# Dotfiles Portable Role
+# Deploys portable shell configuration to Proxmox hosts
+
+# Validate configuration
+- name: Validate dotfiles configuration
+  assert:
+    that:
+      - dotfiles_repo is defined
+      - dotfiles_modules is defined
+      - dotfiles_modules | length > 0
+    fail_msg: "Missing dotfiles configuration. Set dotfiles_repo and dotfiles_modules in group_vars/proxmox.yml"
+  when: deploy_dotfiles | default(true)
+  tags: [dotfiles]
+
+- name: Install git (required for dotfiles)
+  apt:
+    name: git
+    state: present
+  when: deploy_dotfiles | default(true)
+  tags: [dotfiles]
+
+- name: Check if dotfiles repo exists
+  stat:
+    path: /root/.dotfiles
+  register: dotfiles_dir
+  when: deploy_dotfiles | default(true)
+  tags: [dotfiles]
+
+- name: Clone dotfiles repository
+  git:
+    repo: "{{ dotfiles_repo }}"
+    dest: /root/.dotfiles
+    version: main
+    force: no
+  when:
+    - deploy_dotfiles | default(true)
+    - not dotfiles_dir.stat.exists | default(false)
+  register: dotfiles_cloned
+  tags: [dotfiles]
+
+- name: Update dotfiles repository
+  git:
+    repo: "{{ dotfiles_repo }}"
+    dest: /root/.dotfiles
+    version: main
+    update: yes
+  when:
+    - deploy_dotfiles | default(true)
+    - dotfiles_dir.stat.exists | default(false)
+  register: dotfiles_updated
+  tags: [dotfiles]
+
+# Check if the repo has an install script
+- name: Check for install script
+  stat:
+    path: /root/.dotfiles/install.sh
+  register: install_script
+  when: deploy_dotfiles | default(true)
+  tags: [dotfiles]
+
+# Run install script if it exists
+- name: Run dotfiles install script
+  shell: |
+    cd /root/.dotfiles
+    ./install.sh {{ dotfiles_modules | join(' ') }}
+  args:
+    executable: /bin/bash
+  when:
+    - deploy_dotfiles | default(true)
+    - install_script.stat.exists | default(false)
+    - dotfiles_cloned is changed or dotfiles_updated is changed
+  register: install_result
+  tags: [dotfiles]
+
+# Fallback: Source from .bashrc if no install script
+- name: Check for module files to source
+  stat:
+    path: "/root/.dotfiles/{{ item }}"
+  loop: "{{ dotfiles_modules }}"
+  register: module_files
+  when:
+    - deploy_dotfiles | default(true)
+    - not install_script.stat.exists | default(true)
+  tags: [dotfiles]
+
+- name: Add dotfiles sourcing to .bashrc
+  blockinfile:
+    path: /root/.bashrc
+    marker: "# {mark} ANSIBLE MANAGED - PORTABLE DOTFILES"
+    block: |
+      # Load portable dotfiles modules
+      {% for module in dotfiles_modules %}
+      [ -f ~/.dotfiles/{{ module }}/init.sh ] && source ~/.dotfiles/{{ module }}/init.sh
+      [ -f ~/.dotfiles/{{ module }}.sh ] && source ~/.dotfiles/{{ module }}.sh
+      [ -f ~/.dotfiles/modules/{{ module }}/init.sh ] && source ~/.dotfiles/modules/{{ module }}/init.sh
+      {% endfor %}
+    create: yes
+  when:
+    - deploy_dotfiles | default(true)
+    - not install_script.stat.exists | default(true)
+  tags: [dotfiles]
+
+- name: Display dotfiles deployment summary
+  debug:
+    msg: |
+      Dotfiles Deployment Summary
+      ===========================
+      Repository: {{ dotfiles_repo }}
+      Location: /root/.dotfiles
+      Modules: {{ dotfiles_modules | join(', ') }}
+      Method: {{ 'Install script' if install_script.stat.exists | default(false) else 'Sourced from .bashrc' }}
+
+      To reload: source ~/.bashrc
+  when: deploy_dotfiles | default(true)
+  tags: [dotfiles]

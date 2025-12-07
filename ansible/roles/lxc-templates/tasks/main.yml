@@ -1,0 +1,96 @@
+---
+# LXC Templates Role
+# Downloads commonly used LXC templates for container deployment
+
+- name: Validate LXC templates configuration
+  assert:
+    that:
+      - lxc_templates_to_download is defined
+      - lxc_templates_to_download | length > 0
+    fail_msg: "No LXC templates configured. Set lxc_templates_to_download in group_vars/proxmox.yml"
+  when: download_lxc_templates | default(false)
+  tags: [lxc-templates]
+
+- name: Update Proxmox template list
+  shell: pveam update
+  changed_when: false
+  when: download_lxc_templates | default(false)
+  tags: [lxc-templates]
+
+- name: Get list of available templates
+  shell: pveam available --section system
+  register: available_templates
+  changed_when: false
+  when: download_lxc_templates | default(false)
+  tags: [lxc-templates]
+
+- name: Find matching templates for each requested distro
+  shell: |
+    pveam available --section system | grep -E "^{{ item }}" | sort -V | tail -1 | awk '{print $1}'
+  register: template_matches
+  loop: "{{ lxc_templates_to_download }}"
+  changed_when: false
+  when: download_lxc_templates | default(false)
+  tags: [lxc-templates]
+
+- name: Download LXC templates
+  shell: pveam download local {{ item.stdout }}
+  args:
+    creates: "/var/lib/vz/template/cache/{{ item.stdout }}"
+  loop: "{{ template_matches.results | default([]) }}"
+  loop_control:
+    label: "{{ item.item | default('unknown') }}"
+  when:
+    - download_lxc_templates | default(false)
+    - item.stdout is defined
+    - item.stdout | length > 0
+  tags: [lxc-templates]
+
+- name: Create LXC helper scripts
+  copy:
+    dest: /usr/local/bin/lxc-quick-create
+    content: |
+      #!/bin/bash
+      # Quick LXC container creation helper
+      # Usage: lxc-quick-create <vmid> <hostname> [template]
+
+      VMID=${1:?Usage: lxc-quick-create <vmid> <hostname> [template]}
+      HOSTNAME=${2:?Usage: lxc-quick-create <vmid> <hostname> [template]}
+      TEMPLATE=${3:-$(ls /var/lib/vz/template/cache/ | grep debian | sort -V | tail -1)}
+
+      echo "Creating LXC container:"
+      echo "  VMID: $VMID"
+      echo "  Hostname: $HOSTNAME"
+      echo "  Template: $TEMPLATE"
+
+      pct create $VMID /var/lib/vz/template/cache/$TEMPLATE \
+        --hostname $HOSTNAME \
+        --cores 2 \
+        --memory 2048 \
+        --swap 1024 \
+        --rootfs local-lvm:8 \
+        --net0 name=eth0,bridge=vmbr0,ip=dhcp \
+        --unprivileged 1 \
+        --features nesting=1 \
+        --onboot 1
+
+      echo "Container $VMID created. Start with: pct start $VMID"
+    mode: '0755'
+  when: create_lxc_helpers | default(true)
+  tags: [lxc-templates]
+
+- name: Display LXC templates summary
+  debug:
+    msg: |
+      LXC Templates Downloaded
+      ========================
+      {% for result in template_matches.results %}
+      {% if result.stdout | length > 0 %}
+      - {{ result.item }}: {{ result.stdout }}
+      {% endif %}
+      {% endfor %}
+
+      Location: /var/lib/vz/template/cache/
+      Helper: lxc-quick-create <vmid> <hostname> [template]
+  when: download_lxc_templates | default(false)
+  tags: [lxc-templates]

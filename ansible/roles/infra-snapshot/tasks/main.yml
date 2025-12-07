@@ -1,0 +1,170 @@
+---
+# Infrastructure Snapshot Role
+# Generates a "baseball card" style documentation of the current system state
+
+- name: Ensure snapshot directory exists
+  file:
+    path: "{{ snapshot_output_dir | default('/root/snapshots') }}"
+    state: directory
+    mode: '0755'
+  when: generate_snapshot | default(false)
+  tags: [snapshot]
+
+- name: Gather system facts
+  setup:
+    gather_subset:
+      - hardware
+      - network
+      - virtual
+  when: generate_snapshot | default(false)
+  tags: [snapshot]
+
+- name: Get Proxmox version
+  shell: pveversion
+  register: pve_version
+  changed_when: false
+  when: generate_snapshot | default(false)
+  tags: [snapshot]
+
+- name: Get storage summary
+  shell: pvesm status
+  register: storage_status
+  changed_when: false
+  when: generate_snapshot | default(false)
+  tags: [snapshot]
+
+- name: Get VM list
+  shell: qm list 2>/dev/null || echo "No VMs"
+  register: vm_list
+  changed_when: false
+  when: generate_snapshot | default(false)
+  tags: [snapshot]
+
+- name: Get LXC container list
+  shell: pct list 2>/dev/null || echo "No containers"
+  register: lxc_list
+  changed_when: false
+  when: generate_snapshot | default(false)
+  tags: [snapshot]
+
+- name: Get network configuration
+  shell: cat /etc/network/interfaces
+  register: network_config
+  changed_when: false
+  when: generate_snapshot | default(false)
+  tags: [snapshot]
+
+- name: Get GPU information
+  shell: lspci | grep -iE 'vga|3d|display' || echo "No dedicated GPU"
+  register: gpu_info
+  changed_when: false
+  when: generate_snapshot | default(false)
+  tags: [snapshot]
+
+- name: Get disk layout
+  shell: lsblk -o NAME,SIZE,TYPE,MOUNTPOINT
+  register: disk_layout
+  changed_when: false
+  when: generate_snapshot | default(false)
+  tags: [snapshot]
+
+- name: Generate infrastructure snapshot
+  copy:
+    dest: "{{ snapshot_output_dir | default('/root/snapshots') }}/{{ inventory_hostname }}-{{ ansible_date_time.date }}.txt"
+    content: |
+      ╔════════════════════════════════════════════════════════════════════════════╗
+      ║                      INFRASTRUCTURE SNAPSHOT                               ║
+      ║                      {{ inventory_hostname | center(44) }}                      ║
+      ╚════════════════════════════════════════════════════════════════════════════╝
+
+      Generated: {{ ansible_date_time.iso8601 }}
+      Ansible managed: homelab-automation
+
+      ═══════════════════════════════════════════════════════════════════════════════
+      SYSTEM OVERVIEW
+      ═══════════════════════════════════════════════════════════════════════════════
+
+      Hostname:     {{ ansible_hostname }}
+      FQDN:         {{ ansible_fqdn }}
+      {{ pve_version.stdout }}
+
+      ═══════════════════════════════════════════════════════════════════════════════
+      HARDWARE
+      ═══════════════════════════════════════════════════════════════════════════════
+
+      CPU:          {{ ansible_processor[2] | default('Unknown') }}
+      Cores:        {{ ansible_processor_vcpus }} vCPUs ({{ ansible_processor_cores }} physical)
+      Memory:       {{ (ansible_memtotal_mb / 1024) | round(1) }} GB
+      Architecture: {{ ansible_architecture }}
+
+      GPU/Display:
+      {{ gpu_info.stdout | indent(2) }}
+
+      ═══════════════════════════════════════════════════════════════════════════════
+      STORAGE
+      ═══════════════════════════════════════════════════════════════════════════════
+
+      {{ storage_status.stdout }}
+
+      Disk Layout:
+      {{ disk_layout.stdout | indent(2) }}
+
+      ═══════════════════════════════════════════════════════════════════════════════
+      NETWORK
+      ═══════════════════════════════════════════════════════════════════════════════
+
+      Primary IP:   {{ ansible_default_ipv4.address | default('N/A') }}
+      Gateway:      {{ ansible_default_ipv4.gateway | default('N/A') }}
+      Interface:    {{ ansible_default_ipv4.interface | default('N/A') }}
+      MAC:          {{ ansible_default_ipv4.macaddress | default('N/A') }}
+
+      /etc/network/interfaces:
+      {{ network_config.stdout | indent(2) }}
+
+      ═══════════════════════════════════════════════════════════════════════════════
+      VIRTUAL MACHINES
+      ═══════════════════════════════════════════════════════════════════════════════
+
+      {{ vm_list.stdout }}
+
+      ═══════════════════════════════════════════════════════════════════════════════
+      LXC CONTAINERS
+      ═══════════════════════════════════════════════════════════════════════════════
+
+      {{ lxc_list.stdout }}
+
+      ═══════════════════════════════════════════════════════════════════════════════
+      ANSIBLE CONFIGURATION
+      ═══════════════════════════════════════════════════════════════════════════════
+
+      SSH Keys:           {{ ssh_public_keys | length }} configured
+      Timezone:           {{ timezone | default('Not set') }}
+      Tailscale Beacon:   {{ 'Enabled' if create_tailscale_router | default(false) else 'Disabled' }}
+      PCI Passthrough:    {{ 'Enabled' if enable_pci_passthrough | default(false) else 'Disabled' }}
+      VM Templates:       {{ 'Enabled' if create_vm_templates | default(false) else 'Disabled' }}
+
+      ═══════════════════════════════════════════════════════════════════════════════
+      END OF SNAPSHOT
+      ═══════════════════════════════════════════════════════════════════════════════
+    mode: '0644'
+  when: generate_snapshot | default(false)
+  register: snapshot_created
+  tags: [snapshot]
+
+- name: Create latest symlink
+  file:
+    src: "{{ snapshot_output_dir | default('/root/snapshots') }}/{{ inventory_hostname }}-{{ ansible_date_time.date }}.txt"
+    dest: "{{ snapshot_output_dir | default('/root/snapshots') }}/{{ inventory_hostname }}-latest.txt"
+    state: link
+    force: yes
+  when: snapshot_created is changed
+  tags: [snapshot]
+
+- name: Display snapshot location
+  debug:
+    msg: |
+      Infrastructure snapshot generated!
+      Location: {{ snapshot_output_dir | default('/root/snapshots') }}/{{ inventory_hostname }}-{{ ansible_date_time.date }}.txt
+      Symlink:  {{ snapshot_output_dir | default('/root/snapshots') }}/{{ inventory_hostname }}-latest.txt
+  when: snapshot_created is changed
+  tags: [snapshot]

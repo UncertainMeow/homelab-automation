@@ -1,0 +1,103 @@
+---
+# Create a single VM template
+# Called with loop var 'template' containing key and value
+
+- name: "{{ template.key }} - Check if VM template exists"
+  shell: qm status {{ template.value.vmid }}
+  register: vm_exists
+  changed_when: false
+  failed_when: false
+  tags: [vm-templates]
+
+- name: "{{ template.key }} - Skip if template exists"
+  debug:
+    msg: "Template {{ template.value.name }} ({{ template.value.vmid }}) already exists, skipping"
+  when: vm_exists.rc == 0
+  tags: [vm-templates]
+
+# Only proceed if template doesn't exist
+- name: "{{ template.key }} - Set image URL"
+  set_fact:
+    image_url: "{{ vm_image_urls[template.key] | default(template.value.image_url | default('')) }}"
+    image_file: "/var/lib/vz/template/iso/{{ template.key }}-cloud.qcow2"
+  when: vm_exists.rc != 0
+  tags: [vm-templates]
+
+- name: "{{ template.key }} - Fail if no image URL"
+  fail:
+    msg: "No image URL found for {{ template.key }}. Add to vm_image_urls or specify template.value.image_url"
+  when:
+    - vm_exists.rc != 0
+    - image_url | length == 0
+  tags: [vm-templates]
+
+- name: "{{ template.key }} - Download cloud image"
+  get_url:
+    url: "{{ image_url }}"
+    dest: "{{ image_file }}"
+    mode: '0644'
+    timeout: 300
+  when: vm_exists.rc != 0
+  tags: [vm-templates]
+
+- name: "{{ template.key }} - Create VM"
+  shell: |
+    qm create {{ template.value.vmid }} \
+      --name {{ template.value.name }} \
+      --cores {{ template.value.cores | default(2) }} \
+      --memory {{ template.value.memory | default(2048) }} \
+      --net0 virtio,bridge=vmbr0 \
+      --ostype l26 \
+      --scsihw virtio-scsi-pci \
+      --agent enabled=1 \
+      --serial0 socket \
+      --vga serial0
+  when: vm_exists.rc != 0
+  tags: [vm-templates]
+
+- name: "{{ template.key }} - Import disk to VM"
+  shell: |
+    qm set {{ template.value.vmid }} --scsi0 local-lvm:0,import-from={{ image_file }}
+  when: vm_exists.rc != 0
+  tags: [vm-templates]
+
+- name: "{{ template.key }} - Resize disk"
+  shell: |
+    qm disk resize {{ template.value.vmid }} scsi0 {{ template.value.disk | default(10) }}G
+  when: vm_exists.rc != 0
+  tags: [vm-templates]
+
+- name: "{{ template.key }} - Add cloud-init drive"
+  shell: |
+    qm set {{ template.value.vmid }} --ide2 local-lvm:cloudinit
+  when: vm_exists.rc != 0
+  tags: [vm-templates]
+
+- name: "{{ template.key }} - Configure boot order"
+  shell: |
+    qm set {{ template.value.vmid }} --boot order=scsi0
+  when: vm_exists.rc != 0
+  tags: [vm-templates]
+
+- name: "{{ template.key }} - Set cloud-init defaults"
+  shell: |
+    qm set {{ template.value.vmid }} \
+      --ipconfig0 ip=dhcp \
+      --ciuser {{ template.value.ci_user | default(vm_default_users[template.key] | default('root')) }} \
+      --sshkeys /root/.ssh/authorized_keys
+  when:
+    - vm_exists.rc != 0
+  tags: [vm-templates]
+
+- name: "{{ template.key }} - Convert to template"
+  shell: |
+    qm template {{ template.value.vmid }}
+  when: vm_exists.rc != 0
+  register: template_created
+  tags: [vm-templates]
+
+- name: "{{ template.key }} - Template created"
+  debug:
+    msg: "Created template: {{ template.value.name }} (VMID: {{ template.value.vmid }})"
+  when: template_created is changed
+  tags: [vm-templates]

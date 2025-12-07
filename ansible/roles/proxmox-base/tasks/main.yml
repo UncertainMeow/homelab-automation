@@ -2,18 +2,64 @@
 # Proxmox Base Configuration Role
 # Core system setup: repos, updates, packages, security, time sync
 
-- name: Disable Enterprise Repository
-  apt_repository:
-    repo: "deb https://enterprise.proxmox.com/debian/pve {{ ansible_distribution_release }} pve-enterprise"
+# Validate that we're running on a Proxmox host
+- name: Verify this is a Proxmox VE host
+  stat:
+    path: /etc/pve
+  register: pve_check
+  tags: [base, validate]
+
+- name: Fail if not a Proxmox host
+  assert:
+    that:
+      - pve_check.stat.exists
+      - pve_check.stat.isdir
+    fail_msg: "This role must be run on a Proxmox VE host (/etc/pve not found)"
+  tags: [base, validate]
+
+- name: Validate SSH keys are configured
+  assert:
+    that:
+      - ssh_public_keys is defined
+      - ssh_public_keys | length > 0
+    fail_msg: "No SSH public keys configured. Set ssh_public_keys in group_vars/proxmox.yml"
+  tags: [base, validate]
+
+# Remove enterprise repos - both old .list format (PVE 7/8) and new .sources format (PVE 9)
+- name: Remove enterprise repository files (.list format - PVE 7/8)
+  ansible.builtin.file:
+    path: "{{ item }}"
     state: absent
-    filename: pve-enterprise
+  loop:
+    - /etc/apt/sources.list.d/pve-enterprise.list
+    - /etc/apt/sources.list.d/ceph.list
   tags: [base, repos]
 
-- name: Add No-Subscription Repository
+- name: Remove enterprise repository files (.sources format - PVE 9)
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - /etc/apt/sources.list.d/pve-enterprise.sources
+    - /etc/apt/sources.list.d/ceph.sources
+  tags: [base, repos]
+
+- name: Add No-Subscription Repository (.list format)
   apt_repository:
-    repo: "deb http://download.proxmox.com/debian/pve {{ ansible_distribution_release }} pve-no-subscription"
+    repo: "deb http://download.proxmox.com/debian/pve {{ ansible_facts['distribution_release'] }} pve-no-subscription"
     state: present
     filename: pve-no-subscription
+    update_cache: no
+  tags: [base, repos]
+
+# Add Ceph no-subscription repo for PVE 9+ (needed for ceph packages)
+- name: Add Ceph No-Subscription Repository
+  apt_repository:
+    repo: "deb http://download.proxmox.com/debian/ceph-squid {{ ansible_facts['distribution_release'] }} no-subscription"
+    state: present
+    filename: ceph-no-subscription
+    update_cache: no
+  when: ansible_facts['distribution_release'] == 'trixie'
   tags: [base, repos]
 
 - name: Update apt cache
@@ -97,11 +143,20 @@
   when: install_fail2ban | default(false)
   tags: [base, security]
 
-- name: Ensure systemd-timesyncd is running
+- name: Check if systemd-timesyncd exists
   systemd:
     name: systemd-timesyncd
     state: started
     enabled: yes
+  tags: [base, time]
+  ignore_errors: yes
+  register: timesyncd_result
+
+- name: Install and enable chrony (if systemd-timesyncd not available)
+  apt:
+    name: chrony
+    state: present
+  when: timesyncd_result is failed
   tags: [base, time]
 
 - name: Set timezone

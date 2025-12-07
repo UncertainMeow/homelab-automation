@@ -4,7 +4,7 @@
 
 - name: Run post-install script
   shell: |
-    bash -c "$(curl -fsSL https://raw.githubusercontent.com/community-scripts/ProxmoxVE/main/tools/pve/post-pve-install.sh)" -s --no-nag-fix
+    yes | bash -c "$(curl -fsSL https://raw.githubusercontent.com/community-scripts/ProxmoxVE/main/tools/pve/post-pve-install.sh)" -s --no-nag-fix || true
   args:
     creates: /var/log/pve-post-install.log
   when: enable_post_install | default(true)
@@ -20,14 +20,31 @@
   when: post_install is changed
   tags: [community-scripts, post-install]
 
-- name: Install processor microcode
-  shell: |
-    bash -c "$(curl -fsSL https://raw.githubusercontent.com/community-scripts/ProxmoxVE/main/tools/pve/microcode.sh)"
-  args:
-    creates: /var/log/microcode-installed.log
+- name: Detect CPU vendor
+  shell: lscpu | grep -i vendor | awk '{print tolower($3)}'
+  register: cpu_vendor
+  changed_when: false
   when: enable_microcode | default(true)
-  register: microcode
-  changed_when: "'installed' in microcode.stdout or 'updated' in microcode.stdout"
+  tags: [community-scripts, microcode]
+
+- name: Install Intel microcode
+  apt:
+    name: intel-microcode
+    state: present
+    update_cache: no
+  when:
+    - enable_microcode | default(true)
+    - "'intel' in cpu_vendor.stdout"
+  tags: [community-scripts, microcode]
+
+- name: Install AMD microcode
+  apt:
+    name: amd64-microcode
+    state: present
+    update_cache: no
+  when:
+    - enable_microcode | default(true)
+    - "'amd' in cpu_vendor.stdout"
   tags: [community-scripts, microcode]
 
 - name: Mark microcode as installed
@@ -35,7 +52,7 @@
     path: /var/log/microcode-installed.log
     state: touch
     mode: '0644'
-  when: microcode is changed
+  when: enable_microcode | default(true)
   tags: [community-scripts, microcode]
 
 - name: Install Netdata monitoring

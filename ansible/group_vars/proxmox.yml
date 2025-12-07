@@ -12,8 +12,7 @@ timezone: "America/New_York"
 # ============================================
 # Add your SSH public keys here (one per line in the list)
 ssh_public_keys:
-  - "{{ lookup('env', 'SSH_PUBLIC_KEY') | default('', true) }}"
-  # Or hardcode: "ssh-ed25519 AAAAC3... user@host"
+  - "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIN7jefck23Q1wCFLAS3shg6uVpiOXKdVRPiPqRQc2gNz cogito"
 
 # Install and configure fail2ban for SSH protection
 install_fail2ban: false
@@ -30,12 +29,13 @@ enable_ipv6: false
 # ============================================
 # Community Scripts
 # ============================================
-enable_post_install: true
-enable_microcode: true
-enable_netdata: true
-enable_kernel_clean: true
-enable_pve_scripts_local: true
-enable_iptag: true
+# NOTE: Many community scripts use whiptail (interactive TUI) - we disable those for automation
+enable_post_install: false       # Interactive whiptail - skip
+enable_microcode: true           # CRITICAL - Direct apt install (auto-updates)
+enable_netdata: false            # Interactive whiptail - run manually if wanted
+enable_kernel_clean: false       # Interactive whiptail - run manually if wanted
+enable_pve_scripts_local: true   # Non-interactive helper scripts ✅
+enable_iptag: false              # Actually hung - also interactive
 
 # ============================================
 # PCI Passthrough & GPU
@@ -50,7 +50,7 @@ enable_nvidia_setup: true
 # ============================================
 # Tailscale Emergency Beacon
 # ============================================
-create_tailscale_router: false  # Set true to create beacon
+create_tailscale_router: true  # Emergency access when network fails
 
 tailscale_router_config:
   id: 200
@@ -75,7 +75,7 @@ tailscale_exit_node: false
 # ============================================
 # VM Templates
 # ============================================
-create_vm_templates: false  # Set true to create templates
+create_vm_templates: true  # Create cloud-init VM templates
 
 vm_templates:
   debian12:
