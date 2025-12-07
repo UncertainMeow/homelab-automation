@@ -32,7 +32,7 @@
   tags: [tailscale-router]
 
 - name: Find latest Alpine LXC template
-  shell: pveam available --section system | grep -E '^alpine-[0-9]' | sort -V | tail -1 | awk '{print $1}'
+  shell: pveam available --section system | grep alpine | awk '{print $2}' | sort -V | tail -1
   register: alpine_template
   changed_when: false
   when:
