@@ -1,0 +1,87 @@
+---
+# GitLab Role - Defaults
+# Deploys GitLab CE in an LXC container using Omnibus
+
+# ============================================
+# Deployment Control
+# ============================================
+gitlab_deploy: true
+
+# ============================================
+# LXC Container Settings
+# ============================================
+gitlab_vmid: 204
+gitlab_hostname: "gitlab"
+gitlab_container_ip: "10.203.3.204"
+gitlab_container_gateway: "10.203.3.1"
+gitlab_container_cidr: "24"
+
+# Container resources
+gitlab_cores: 4
+gitlab_memory: 8192      # 8GB - GitLab minimum is 4GB, 8GB recommended
+gitlab_swap: 4096        # 4GB swap
+gitlab_disk: "50G"       # GitLab + repos storage
+
+# LXC template and storage
+gitlab_lxc_template: "local:vztmpl/debian-12-standard_12.12-1_amd64.tar.zst"
+gitlab_lxc_storage: "local-lvm"
+gitlab_lxc_bridge: "vmbr0"
+
+# Container options
+gitlab_lxc_unprivileged: true
+gitlab_lxc_onboot: true
+gitlab_lxc_features:
+  - nesting=1
+
+# ============================================
+# GitLab Configuration
+# ============================================
+# External URL - how users access GitLab
+gitlab_external_url: "http://{{ gitlab_container_ip }}"
+
+# Ports (inside container - exposed directly since container has own IP)
+gitlab_http_port: 80
+gitlab_https_port: 443
+gitlab_ssh_port: 22      # Standard SSH since container has own IP
+
+# GitLab edition and version
+gitlab_edition: "gitlab-ce"  # or gitlab-ee
+gitlab_version: ""           # Empty for latest, or specific like "16.8.0-ce.0"
+
+# ============================================
+# GitLab Omnibus Settings
+# ============================================
+gitlab_timezone: "America/Los_Angeles"
+
+# Disable resource-heavy monitoring (saves ~1GB RAM)
+gitlab_prometheus_enabled: false
+gitlab_grafana_enabled: false
+
+# Puma (web server) tuning for homelab
+gitlab_puma_workers: 2
+gitlab_puma_min_threads: 1
+gitlab_puma_max_threads: 4
+
+# Sidekiq (background jobs) tuning
+gitlab_sidekiq_concurrency: 10
+
+# PostgreSQL tuning
+gitlab_postgresql_shared_buffers: "256MB"
+
+# Backup retention (seconds) - 7 days
+gitlab_backup_keep_time: 604800
+
+# ============================================
+# SMTP Configuration (Optional)
+# ============================================
+gitlab_smtp_enabled: false
+# gitlab_smtp_address: "smtp.gmail.com"
+# gitlab_smtp_port: 587
+# gitlab_smtp_user: ""
+# gitlab_smtp_password: ""  # Use vault
+
+# ============================================
+# Container Registry (Optional)
+# ============================================
+gitlab_registry_enabled: false
+# gitlab_registry_url: "https://registry.lab.local"

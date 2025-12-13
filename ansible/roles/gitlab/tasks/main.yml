@@ -1,0 +1,212 @@
+---
+# GitLab Role - Main Tasks
+# Creates LXC container and installs GitLab Omnibus
+
+# ============================================
+# LXC Container Creation
+# ============================================
+- name: Check if GitLab container exists
+  command: "pct status {{ gitlab_vmid }}"
+  register: gitlab_ct_exists
+  changed_when: false
+  failed_when: false
+  tags: [gitlab, lxc]
+
+- name: Create GitLab LXC container
+  command: >
+    pct create {{ gitlab_vmid }} {{ gitlab_lxc_template }}
+    --hostname {{ gitlab_hostname }}
+    --cores {{ gitlab_cores }}
+    --memory {{ gitlab_memory }}
+    --swap {{ gitlab_swap }}
+    --rootfs {{ gitlab_lxc_storage }}:{{ gitlab_disk | regex_replace('[^0-9]', '') }}
+    --net0 name=eth0,bridge={{ gitlab_lxc_bridge }},ip={{ gitlab_container_ip }}/{{ gitlab_container_cidr }},gw={{ gitlab_container_gateway }}
+    --features {{ gitlab_lxc_features | join(',') }}
+    --unprivileged {{ '1' if gitlab_lxc_unprivileged else '0' }}
+    --onboot {{ '1' if gitlab_lxc_onboot else '0' }}
+    --description "GitLab CE - Self-hosted Git server"
+  when: gitlab_ct_exists.rc != 0
+  register: gitlab_ct_created
+  tags: [gitlab, lxc]
+
+- name: Start GitLab container
+  command: "pct start {{ gitlab_vmid }}"
+  register: gitlab_ct_start
+  failed_when: false
+  changed_when: gitlab_ct_start.rc == 0
+  tags: [gitlab, lxc]
+
+- name: Wait for container to be ready
+  pause:
+    seconds: 10
+  when: gitlab_ct_created.changed or gitlab_ct_start.changed
+  tags: [gitlab, lxc]
+
+- name: Wait for network in container
+  command: "pct exec {{ gitlab_vmid }} -- ping -c 1 8.8.8.8"
+  register: network_check
+  until: network_check.rc == 0
+  retries: 12
+  delay: 5
+  changed_when: false
+  tags: [gitlab, lxc]
+
+# ============================================
+# System Preparation
+# ============================================
+- name: Update package lists
+  command: "pct exec {{ gitlab_vmid }} -- apt-get update"
+  changed_when: false
+  tags: [gitlab, packages]
+
+- name: Install GitLab dependencies
+  command: >
+    pct exec {{ gitlab_vmid }} -- apt-get install -y
+    curl
+    openssh-server
+    ca-certificates
+    perl
+    postfix
+  changed_when: false
+  tags: [gitlab, packages]
+
+# ============================================
+# GitLab Omnibus Installation
+# ============================================
+- name: Check if GitLab is already installed
+  command: "pct exec {{ gitlab_vmid }} -- which gitlab-ctl"
+  register: gitlab_installed
+  changed_when: false
+  failed_when: false
+  tags: [gitlab, install]
+
+- name: Add GitLab repository
+  command: >
+    pct exec {{ gitlab_vmid }} -- bash -c "
+    curl -sS https://packages.gitlab.com/install/repositories/gitlab/{{ gitlab_edition }}/script.deb.sh | bash
+    "
+  when: gitlab_installed.rc != 0
+  changed_when: true
+  tags: [gitlab, install]
+
+- name: Install GitLab Omnibus
+  command: >
+    pct exec {{ gitlab_vmid }} -- bash -c "
+    EXTERNAL_URL='{{ gitlab_external_url }}' apt-get install -y {{ gitlab_edition }}{{ '-' + gitlab_version if gitlab_version else '' }}
+    "
+  when: gitlab_installed.rc != 0
+  register: gitlab_install
+  tags: [gitlab, install]
+
+# ============================================
+# GitLab Configuration
+# ============================================
+- name: Deploy GitLab configuration
+  template:
+    src: gitlab.rb.j2
+    dest: "/tmp/gitlab.rb.ansible"
+    mode: '0644'
+  tags: [gitlab, config]
+
+- name: Push GitLab config to container
+  command: "pct push {{ gitlab_vmid }} /tmp/gitlab.rb.ansible /etc/gitlab/gitlab.rb"
+  tags: [gitlab, config]
+
+- name: Clean up temp config
+  file:
+    path: "/tmp/gitlab.rb.ansible"
+    state: absent
+  tags: [gitlab, config]
+
+- name: Reconfigure GitLab
+  command: "pct exec {{ gitlab_vmid }} -- gitlab-ctl reconfigure"
+  register: gitlab_reconfigure
+  changed_when: "'gitlab Reconfigured!' in gitlab_reconfigure.stdout"
+  tags: [gitlab, config]
+
+# ============================================
+# Wait for GitLab to be Ready
+# ============================================
+- name: Wait for GitLab to be healthy (this takes 2-5 minutes)
+  command: "pct exec {{ gitlab_vmid }} -- gitlab-rake gitlab:check SANITIZE=true"
+  register: gitlab_health
+  until: gitlab_health.rc == 0
+  retries: 30
+  delay: 10
+  changed_when: false
+  failed_when: false
+  tags: [gitlab, verify]
+
+# ============================================
+# Get Initial Root Password
+# ============================================
+- name: Get initial root password
+  command: "pct exec {{ gitlab_vmid }} -- cat /etc/gitlab/initial_root_password"
+  register: initial_password
+  changed_when: false
+  failed_when: false
+  tags: [gitlab, verify]
+
+- name: Save password retrieval instructions
+  copy:
+    dest: "/root/gitlab-credentials.txt"
+    content: |
+      GitLab Initial Root Password
+      ============================
+
+      Container: {{ gitlab_vmid }} ({{ gitlab_hostname }})
+      Access URL: {{ gitlab_external_url }}
+
+      To get the initial root password:
+
+        pct exec {{ gitlab_vmid }} -- cat /etc/gitlab/initial_root_password
+
+      Or SSH into the container:
+
+        ssh root@{{ gitlab_container_ip }}
+        cat /etc/gitlab/initial_root_password
+
+      NOTE: This password expires 24 hours after installation.
+      Change it immediately after first login!
+
+      Username: root
+    mode: '0600'
+  tags: [gitlab, verify]
+
+# ============================================
+# Summary
+# ============================================
+- name: Display GitLab setup summary
+  debug:
+    msg: |
+      GitLab Deployment Complete
+      ══════════════════════════════════════════════════
+
+      Container: {{ gitlab_vmid }} ({{ gitlab_hostname }})
+      IP Address: {{ gitlab_container_ip }}
+
+      Access URL: {{ gitlab_external_url }}
+      SSH Clone:  git@{{ gitlab_container_ip }}:group/project.git
+
+      Initial Login:
+        Username: root
+        Password: pct exec {{ gitlab_vmid }} -- cat /etc/gitlab/initial_root_password
+
+      Container Commands:
+        pct enter {{ gitlab_vmid }}              # Enter container shell
+        pct exec {{ gitlab_vmid }} -- gitlab-ctl status   # Service status
+        pct exec {{ gitlab_vmid }} -- gitlab-ctl tail     # View logs
+
+      Inside Container:
+        gitlab-ctl status                # All services
+        gitlab-ctl reconfigure           # Apply config changes
+        gitlab-backup create             # Create backup
+
+      Next Steps:
+        1. Log in as root and change password (expires in 24h)
+        2. Create your admin user
+        3. Mirror GitHub repositories
+        4. Configure SSH key authentication
+
+      Documentation: docs/gitlab-setup.md
+  tags: [gitlab, verify, always]
