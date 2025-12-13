@@ -44,7 +44,7 @@ Infrastructure-as-code for a Proxmox-based homelab with focus on:
 
 | Stack | Container | Services | Status |
 |-------|-----------|----------|--------|
-| `llm-stack` | ai-gpu0 | Ollama, Open WebUI, Khoj | 📋 Created |
+| `llm-stack` | ai-gpu0 | Ollama, Open WebUI | 📋 Created |
 | `ai-stack` | ai-gpu1 | Karakeep, Meilisearch | 📋 Created |
 
 ### Security Posture
@@ -85,7 +85,7 @@ Infrastructure-as-code for a Proxmox-based homelab with focus on:
 ### Phase 1: Socrates Completion ✅
 
 - [x] **Deploy Docker stacks to AI containers**
-  - [x] ai-gpu0: Native Ollama + Open WebUI + Khoj (Docker)
+  - [x] ai-gpu0: Native Ollama + Open WebUI (Docker)
   - [x] ai-gpu1: Karakeep + Meilisearch + Chrome (Docker)
   - [x] Verified Ollama is GPU-accelerated
   - [x] Models available: llama3.1:8b, mistral:7b, llava:7b
@@ -121,7 +121,7 @@ Infrastructure-as-code for a Proxmox-based homelab with focus on:
 - [ ] **Reverse Proxy**
   - [ ] Traefik or Caddy for service routing
   - [ ] SSL certificates (Let's Encrypt or internal CA)
-  - [ ] Expose services: Open WebUI, Khoj, Karakeep
+  - [ ] Expose services: Open WebUI, Karakeep
 
 - [ ] **Monitoring Stack**
   - [ ] Netdata or Prometheus + Grafana
@@ -141,8 +141,6 @@ Infrastructure-as-code for a Proxmox-based homelab with focus on:
   - [ ] Version tracking for models
 
 - [ ] **AI Application Integration**
-  - [ ] Connect Khoj to document sources
-  - [ ] Integrate khoj-utils (https://github.com/UncertainMeow/khoj-utils.git)
   - [ ] Set up Karakeep for bookmarking
   - [ ] API access for external applications
 
@@ -210,7 +208,6 @@ These are significant pieces of work that will be tackled separately:
 |---------|-----------|-----|-------|
 | **Ollama API** | ai-gpu0 | `http://10.203.3.184:11434` | Native install, GPU-accelerated |
 | **Open WebUI** | ai-gpu0 | `http://10.203.3.184:8080` | Chat interface for Ollama |
-| **Khoj** | ai-gpu0 | `http://10.203.3.184:42110` | AI knowledge assistant |
 | **Karakeep** | ai-gpu1 | `http://10.203.3.153:3000` | AI bookmarking |
 | **Meilisearch** | ai-gpu1 | Internal only (7700) | Search backend for Karakeep |
 
@@ -246,7 +243,7 @@ pct enter 202  # ai-gpu1
 - `ansible/inventory-prod.ini` - Host inventory (gitignored)
 - `ansible/group_vars/proxmox.yml` - Common settings for all hosts
 - `ansible/host_vars/socrates.yml` - Socrates-specific config
-- `services/llm-stack/` - Ollama + Open WebUI + Khoj
+- `services/llm-stack/` - Ollama + Open WebUI
 - `services/ai-stack/` - Karakeep + Meilisearch
 
 ### SSH Access
@@ -267,7 +264,7 @@ ssh kellen@10.203.3.47  # rawls
 **2025-12-13**: Phase 1 (Socrates) complete
 - All GPU containers verified and operational
 - Native Ollama on ai-gpu0 with GPU acceleration
-- Docker services (Open WebUI, Khoj, Karakeep) running
+- Docker services (Open WebUI, Karakeep) running
 - Service URLs documented in Quick Reference
 
 **Next session**: Phase 2 (Zeno/Rawls) or Phase 3 (DNS/networking)

@@ -1,5 +1,5 @@
 #!/bin/bash
-# LLM Stack Setup - Ollama + Open WebUI + Khoj
+# LLM Stack Setup - Ollama + Open WebUI
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -20,7 +20,7 @@ generate_secret() {
 
 echo ""
 echo "═══════════════════════════════════════════════════════════════"
-echo "  LLM Stack Setup - Ollama + Open WebUI + Khoj"
+echo "  LLM Stack Setup - Ollama + Open WebUI"
 echo "═══════════════════════════════════════════════════════════════"
 echo ""
 
@@ -38,12 +38,6 @@ WEBUI_PORT=8080
 WEBUI_SECRET_KEY=$(generate_secret)
 WEBUI_AUTH=true
 
-# Khoj
-KHOJ_PORT=42110
-KHOJ_ADMIN_EMAIL=admin@localhost
-KHOJ_ADMIN_PASSWORD=$(generate_secret)
-KHOJ_DJANGO_SECRET_KEY=$(generate_secret)
-
 # Optional: Cloud API Keys
 # OPENAI_API_KEY=
 # ANTHROPIC_API_KEY=
@@ -52,11 +46,6 @@ EOF
 else
     log_info ".env already exists, keeping existing"
 fi
-
-# Create data directories
-log_info "Creating data directories..."
-mkdir -p data/khoj/documents data/khoj/inbox
-log_ok "Directories created"
 
 # Check GPU
 log_info "Checking GPU..."
@@ -90,7 +79,7 @@ log_info "Pulling starter models..."
 log_info "  llama3.2:3b (fast, good for chat)..."
 docker exec ollama ollama pull llama3.2:3b 2>/dev/null || log_warn "Failed to pull llama3.2:3b"
 
-log_info "  nomic-embed-text (for Khoj embeddings)..."
+log_info "  nomic-embed-text (for embeddings)..."
 docker exec ollama ollama pull nomic-embed-text 2>/dev/null || log_warn "Failed to pull nomic-embed-text"
 
 # Get container IP for cross-container access
@@ -104,13 +93,9 @@ echo ""
 echo "Services (local):"
 echo "  Ollama API:    http://localhost:11434"
 echo "  Open WebUI:    http://localhost:8080"
-echo "  Khoj:          http://localhost:42110"
 echo ""
 echo "Services (from other containers):"
 echo "  Ollama API:    http://${CONTAINER_IP}:11434"
-echo ""
-echo "Khoj Credentials:"
-grep -E "^KHOJ_ADMIN" .env | sed 's/^/  /'
 echo ""
 echo "Pull more models:"
 echo "  docker exec ollama ollama pull mistral"

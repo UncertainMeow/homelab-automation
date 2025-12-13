@@ -7,7 +7,6 @@ GPU-accelerated AI services for Socrates homelab, designed to run on a single Te
 | Service | Port | Purpose |
 |---------|------|---------|
 | **Ollama** | 11434 | Local LLM server (GPU accelerated) |
-| **Khoj** | 42110 | AI knowledge assistant |
 | **Karakeep** | 3000 | AI-powered bookmarking |
 | Meilisearch | 7700 (internal) | Search backend |
 | Chrome | 9222 (internal) | Browser automation |
@@ -62,13 +61,6 @@ curl http://localhost:11434/api/generate -d '{
 }'
 ```
 
-### Khoj - Knowledge Assistant
-
-- Web UI: http://localhost:42110
-- Login with credentials from `.env`
-- Configure content sources in Settings
-- Uses Ollama for local inference by default
-
 ### Karakeep - Bookmarking
 
 - Web UI: http://localhost:3000
@@ -83,10 +75,6 @@ curl http://localhost:11434/api/generate -d '{
 Key settings in `.env`:
 
 ```bash
-# Khoj admin
-KHOJ_ADMIN_EMAIL=admin@localhost
-KHOJ_ADMIN_PASSWORD=<generated>
-
 # Karakeep
 NEXTAUTH_URL=http://your-ip:3000  # Change for remote access
 
@@ -122,7 +110,7 @@ docker compose logs -f ollama  # Specific service
 docker compose ps
 
 # Restart a service
-docker compose restart khoj
+docker compose restart karakeep
 
 # Stop all
 docker compose down
@@ -143,7 +131,6 @@ NEXTAUTH_URL=http://10.203.x.x:3000  # Karakeep
 ```
 
 Then access:
-- Khoj: http://10.203.x.x:42110
 - Karakeep: http://10.203.x.x:3000
 - Ollama API: http://10.203.x.x:11434
 
@@ -181,9 +168,6 @@ docker compose down -v
 
 ```
 ./data/
-├── khoj/
-│   ├── documents/    # Documents for Khoj to index
-│   └── inbox/        # Inbox for new content
 └── (Docker volumes for persistent data)
 ```
 
