@@ -1,0 +1,155 @@
+---
+# docs-site role - Deploy MkDocs documentation site
+
+- name: Check if docs container exists
+  shell: pct status {{ docs_vmid }}
+  register: docs_container_check
+  failed_when: false
+  changed_when: false
+
+- name: Create docs LXC container
+  when: docs_container_check.rc != 0
+  block:
+    - name: Find Debian 12 template
+      shell: pveam list local | grep -E 'debian-12.*standard' | tail -1 | awk '{print $1}'
+      register: debian_template
+      changed_when: false
+
+    - name: Fail if no Debian template found
+      fail:
+        msg: "No Debian 12 template found. Run with download_lxc_templates: true first."
+      when: debian_template.stdout == ""
+
+    - name: Create container
+      shell: |
+        pct create {{ docs_vmid }} {{ debian_template.stdout }} \
+          --hostname {{ docs_hostname }} \
+          --cores {{ docs_cores }} \
+          --memory {{ docs_memory }} \
+          --swap {{ docs_swap }} \
+          --rootfs local-lvm:{{ docs_disk }} \
+          --net0 name=eth0,bridge=vmbr0,ip={{ docs_container_ip }}/{{ docs_container_cidr }},gw={{ docs_container_gateway }} \
+          --features nesting=1 \
+          --unprivileged 1 \
+          --start 0
+      register: container_create
+
+- name: Start docs container
+  shell: pct start {{ docs_vmid }}
+  register: start_result
+  failed_when: start_result.rc != 0 and 'already running' not in start_result.stderr
+  changed_when: "'already running' not in start_result.stderr"
+
+- name: Wait for container to be ready
+  pause:
+    seconds: 10
+
+- name: Update apt cache in container
+  shell: pct exec {{ docs_vmid }} -- apt-get update
+  changed_when: false
+
+- name: Install dependencies in container
+  shell: |
+    pct exec {{ docs_vmid }} -- apt-get install -y \
+      python3 \
+      python3-pip \
+      python3-venv \
+      git
+  register: deps_install
+  changed_when: "'0 newly installed' not in deps_install.stdout"
+
+- name: Create venv and install MkDocs
+  shell: |
+    pct exec {{ docs_vmid }} -- bash -c '
+      python3 -m venv /opt/mkdocs-venv
+      /opt/mkdocs-venv/bin/pip install mkdocs mkdocs-material
+    '
+  args:
+    creates: /opt/mkdocs-venv
+
+- name: Clone documentation repository
+  shell: |
+    pct exec {{ docs_vmid }} -- bash -c '
+      if [ -d {{ docs_local_path }}/.git ]; then
+        cd {{ docs_local_path }} && git pull
+      else
+        git clone {{ docs_repo_url }} {{ docs_local_path }}
+      fi
+    '
+  register: git_result
+  changed_when: "'Already up to date' not in git_result.stdout"
+
+- name: Build documentation site
+  shell: |
+    pct exec {{ docs_vmid }} -- bash -c '
+      cd {{ docs_local_path }}
+      /opt/mkdocs-venv/bin/mkdocs build
+    '
+  register: build_result
+  changed_when: true
+
+- name: Create systemd service for MkDocs
+  shell: |
+    pct exec {{ docs_vmid }} -- bash -c 'cat > /etc/systemd/system/mkdocs.service << EOF
+    [Unit]
+    Description=MkDocs Documentation Server
+    After=network.target
+
+    [Service]
+    Type=simple
+    WorkingDirectory={{ docs_local_path }}
+    ExecStart=/opt/mkdocs-venv/bin/mkdocs serve -a 0.0.0.0:{{ docs_port }}
+    Restart=always
+    RestartSec=5
+
+    [Install]
+    WantedBy=multi-user.target
+    EOF'
+  register: service_created
+
+- name: Enable and start MkDocs service
+  shell: |
+    pct exec {{ docs_vmid }} -- systemctl daemon-reload
+    pct exec {{ docs_vmid }} -- systemctl enable mkdocs
+    pct exec {{ docs_vmid }} -- systemctl restart mkdocs
+
+- name: Create docs rebuild timer
+  when: docs_auto_rebuild
+  shell: |
+    pct exec {{ docs_vmid }} -- bash -c 'cat > /etc/systemd/system/docs-rebuild.service << EOF
+    [Unit]
+    Description=Rebuild documentation from git
+
+    [Service]
+    Type=oneshot
+    WorkingDirectory={{ docs_local_path }}
+    ExecStart=/bin/bash -c "git pull && /opt/mkdocs-venv/bin/mkdocs build"
+    EOF'
+
+    pct exec {{ docs_vmid }} -- bash -c 'cat > /etc/systemd/system/docs-rebuild.timer << EOF
+    [Unit]
+    Description=Rebuild docs periodically
+
+    [Timer]
+    OnBootSec=5min
+    OnUnitActiveSec={{ docs_rebuild_interval }}
+
+    [Install]
+    WantedBy=timers.target
+    EOF'
+
+    pct exec {{ docs_vmid }} -- systemctl daemon-reload
+    pct exec {{ docs_vmid }} -- systemctl enable docs-rebuild.timer
+    pct exec {{ docs_vmid }} -- systemctl start docs-rebuild.timer
+
+- name: Display access information
+  debug:
+    msg: |
+      Documentation site deployed!
+
+      Access URL: http://{{ docs_container_ip }}:{{ docs_port }}
+
+      Container: pct enter {{ docs_vmid }}
+
+      Manual rebuild:
+        pct exec {{ docs_vmid }} -- bash -c 'cd {{ docs_local_path }} && git pull && /opt/mkdocs-venv/bin/mkdocs build'

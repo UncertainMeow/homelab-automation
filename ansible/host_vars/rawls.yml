@@ -99,6 +99,24 @@ sync_enable_timer: true
 sync_run_initial: false  # Enable after API token is created
 
 # ============================================
+# Documentation Site
+# ============================================
+docs_site_deploy: true
+
+# LXC Container settings for docs
+docs_vmid: 205
+docs_hostname: "docs"
+docs_container_ip: "10.203.3.205"
+docs_container_gateway: "10.203.3.1"
+docs_container_cidr: "24"
+
+# Git repo to pull docs from
+docs_repo_url: "https://github.com/UncertainMeow/homelab-automation.git"
+
+# Auto-rebuild every 15 minutes
+docs_auto_rebuild: true
+
+# ============================================
 # Future Services (to be enabled)
 # ============================================
 # authentik_deploy: false   # SSO/Identity

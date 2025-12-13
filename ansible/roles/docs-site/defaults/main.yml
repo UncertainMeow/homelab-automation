@@ -1,0 +1,32 @@
+---
+# docs-site role defaults
+
+# Enable/disable this role
+docs_site_deploy: false
+
+# Where to clone/sync the documentation repo
+docs_repo_url: "https://github.com/UncertainMeow/homelab-automation.git"
+docs_local_path: "/opt/homelab-docs"
+
+# Container settings (if deploying as LXC)
+docs_vmid: 205
+docs_hostname: "docs"
+docs_container_ip: "10.203.3.205"
+docs_container_gateway: "10.203.3.1"
+docs_container_cidr: "24"
+
+# Container resources (MkDocs is lightweight)
+docs_cores: 1
+docs_memory: 512
+docs_swap: 256
+docs_disk: "4G"
+
+# Web server port
+docs_port: 8000
+
+# DNS hostname (once DNS is configured)
+docs_fqdn: "docs.hq.doofus.co"
+
+# Auto-rebuild on git changes (via systemd timer)
+docs_auto_rebuild: true
+docs_rebuild_interval: "15min"

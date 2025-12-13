@@ -91,6 +91,10 @@
       tags: [netbox-dns-sync, sync, phase8, infra-services]
       when: netbox_dns_sync_deploy | default(false)
 
+    - role: docs-site
+      tags: [docs-site, docs, phase8, infra-services]
+      when: docs_site_deploy | default(false)
+
   post_tasks:
     - name: Display setup completion summary
       debug:

@@ -1,0 +1,53 @@
+site_name: Homelab Documentation
+site_description: Infrastructure documentation for the homelab
+site_author: Kellen
+
+theme:
+  name: material
+  palette:
+    - scheme: slate
+      primary: indigo
+      accent: cyan
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+    - scheme: default
+      primary: indigo
+      accent: cyan
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+  features:
+    - navigation.sections
+    - navigation.expand
+    - navigation.top
+    - search.highlight
+    - content.code.copy
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - tables
+  - toc:
+      permalink: true
+
+nav:
+  - Home: index.md
+  - Architecture:
+    - Overview: architecture/overview.md
+    - Hosts: architecture/hosts.md
+    - Services: architecture/services.md
+  - Setup Guides:
+    - DNS & Netbox: guides/dns-netbox.md
+    - GitLab: guides/gitlab.md
+    - Backup Server: guides/pbs.md
+    - HA Cluster: guides/cluster.md
+  - Reference:
+    - Ansible Roles: reference/roles.md
+    - Runbooks: reference/runbooks.md
+
+extra:
+  generator: false
