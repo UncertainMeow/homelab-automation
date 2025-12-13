@@ -1,0 +1,62 @@
+# GitLab Configuration
+# Managed by Ansible - DO NOT EDIT MANUALLY
+# Host: {{ inventory_hostname }} | Container: {{ gitlab_vmid }}
+
+# ============================================
+# External URL
+# ============================================
+external_url '{{ gitlab_external_url }}'
+
+# ============================================
+# SSH Settings
+# ============================================
+gitlab_rails['gitlab_shell_ssh_port'] = {{ gitlab_ssh_port }}
+
+# ============================================
+# Time Zone
+# ============================================
+gitlab_rails['time_zone'] = '{{ gitlab_timezone }}'
+
+# ============================================
+# Resource Optimization (Homelab Tuning)
+# ============================================
+# Puma (web server)
+puma['worker_processes'] = {{ gitlab_puma_workers }}
+puma['min_threads'] = {{ gitlab_puma_min_threads }}
+puma['max_threads'] = {{ gitlab_puma_max_threads }}
+
+# Sidekiq (background jobs)
+sidekiq['max_concurrency'] = {{ gitlab_sidekiq_concurrency }}
+
+# PostgreSQL
+postgresql['shared_buffers'] = "{{ gitlab_postgresql_shared_buffers }}"
+
+# Disable monitoring services to save memory
+prometheus_monitoring['enable'] = {{ gitlab_prometheus_enabled | lower }}
+grafana['enable'] = {{ gitlab_grafana_enabled | lower }}
+
+# ============================================
+# Backup Settings
+# ============================================
+gitlab_rails['backup_keep_time'] = {{ gitlab_backup_keep_time }}
+
+{% if gitlab_registry_enabled %}
+# ============================================
+# Container Registry
+# ============================================
+registry_external_url '{{ gitlab_registry_url }}'
+{% endif %}
+
+{% if gitlab_smtp_enabled %}
+# ============================================
+# SMTP Configuration
+# ============================================
+gitlab_rails['smtp_enable'] = true
+gitlab_rails['smtp_address'] = '{{ gitlab_smtp_address }}'
+gitlab_rails['smtp_port'] = {{ gitlab_smtp_port }}
+gitlab_rails['smtp_user_name'] = '{{ gitlab_smtp_user }}'
+gitlab_rails['smtp_password'] = '{{ gitlab_smtp_password }}'
+gitlab_rails['smtp_domain'] = '{{ gitlab_smtp_address | regex_replace("^smtp\.", "") }}'
+gitlab_rails['smtp_authentication'] = 'login'
+gitlab_rails['smtp_enable_starttls_auto'] = true
+{% endif %}

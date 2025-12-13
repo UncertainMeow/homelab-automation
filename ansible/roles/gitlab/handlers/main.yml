@@ -1,0 +1,14 @@
+---
+# GitLab Role - Handlers
+
+- name: reconfigure gitlab
+  command: "pct exec {{ gitlab_vmid }} -- gitlab-ctl reconfigure"
+
+- name: restart gitlab
+  command: "pct exec {{ gitlab_vmid }} -- gitlab-ctl restart"
+
+- name: start gitlab container
+  command: "pct start {{ gitlab_vmid }}"
+
+- name: stop gitlab container
+  command: "pct stop {{ gitlab_vmid }}"

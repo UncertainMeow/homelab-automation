@@ -53,6 +53,11 @@
       tags: [lxc-templates, templates, phase5]
       when: download_lxc_templates | default(false)
 
+    # Phase 5b: Services (LXC-based)
+    - role: gitlab
+      tags: [gitlab, services, phase5]
+      when: gitlab_deploy | default(false)
+
     # Phase 6: User Experience
     - role: dotfiles-portable
       tags: [dotfiles, phase6]
@@ -80,6 +85,9 @@
           {% endif %}
           {% if create_tailscale_router | default(false) %}
           🚨 Emergency beacon: {{ tailscale_router_hostname }}
+          {% endif %}
+          {% if gitlab_deploy | default(false) %}
+          🦊 GitLab: {{ gitlab_external_url | default('http://' + gitlab_container_ip | default('10.203.3.204')) }}
           {% endif %}
 
           Next Steps:
