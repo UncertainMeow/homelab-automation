@@ -1,0 +1,109 @@
+version: '3.8'
+
+# LLM Stack for ai-gpu0
+# GPU-intensive AI services with local inference
+#
+# Services:
+#   - Ollama: Local LLM server (GPU accelerated)
+#   - Open WebUI: Chat interface
+#   - Khoj: AI knowledge assistant (benefits from local embeddings)
+
+services:
+  # ============================================
+  # Ollama - Local LLM Server (GPU)
+  # ============================================
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama
+    restart: unless-stopped
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+      - /models:/models:ro
+    environment:
+      - OLLAMA_HOST=0.0.0.0
+      - OLLAMA_ORIGINS=*
+      - NVIDIA_VISIBLE_DEVICES=all
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    networks:
+      - llm-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  # ============================================
+  # Open WebUI - Chat Interface
+  # ============================================
+  open-webui:
+    image: ghcr.io/open-webui/open-webui:main
+    container_name: open-webui
+    restart: unless-stopped
+    ports:
+      - "${WEBUI_PORT:-8080}:8080"
+    environment:
+      - OLLAMA_BASE_URL=http://ollama:11434
+      - WEBUI_SECRET_KEY=${WEBUI_SECRET_KEY}
+      - WEBUI_AUTH=${WEBUI_AUTH:-true}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+    volumes:
+      - open_webui_data:/app/backend/data
+    networks:
+      - llm-network
+    depends_on:
+      ollama:
+        condition: service_healthy
+
+  # ============================================
+  # Khoj - AI Knowledge Assistant
+  # ============================================
+  khoj:
+    image: ghcr.io/khoj-ai/khoj:latest
+    container_name: khoj
+    restart: unless-stopped
+    ports:
+      - "${KHOJ_PORT:-42110}:42110"
+    environment:
+      - KHOJ_ADMIN_EMAIL=${KHOJ_ADMIN_EMAIL:-admin@localhost}
+      - KHOJ_ADMIN_PASSWORD=${KHOJ_ADMIN_PASSWORD}
+      - KHOJ_DJANGO_SECRET_KEY=${KHOJ_DJANGO_SECRET_KEY}
+      # Local Ollama for embeddings and chat
+      - OPENAI_BASE_URL=http://ollama:11434/v1
+      - OPENAI_API_KEY=ollama
+      # Optional cloud APIs
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - TZ=${TIMEZONE:-America/New_York}
+    volumes:
+      - khoj_data:/app/data
+      - ./data/khoj/documents:/app/documents
+      - ./data/khoj/inbox:/app/inbox
+    networks:
+      - llm-network
+    depends_on:
+      ollama:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:42110/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+volumes:
+  ollama_data:
+  open_webui_data:
+  khoj_data:
+
+networks:
+  llm-network:
+    driver: bridge
