@@ -1,0 +1,34 @@
+---
+# NFS Storage Role - Default Variables
+# Configures NFS shared storage for Proxmox cluster
+
+# Enable/disable NFS storage setup
+enable_nfs_storage: false
+
+# NFS server configuration (stuffs NAS)
+nfs_server: "10.203.3.99"
+nfs_server_name: "stuffs"
+
+# NFS exports to mount
+# Each becomes a Proxmox storage entry
+nfs_storages:
+  - name: "nfs-vms"
+    export: "/volume1/proxmox/vms"
+    content: "images,rootdir"
+    mount_point: "/mnt/pve/nfs-vms"
+    options: "vers=4.1,noatime,nodiratime"
+
+  - name: "nfs-isos"
+    export: "/volume1/proxmox/isos"
+    content: "iso,vztmpl"
+    mount_point: "/mnt/pve/nfs-isos"
+    options: "vers=4.1,noatime"
+
+  - name: "nfs-backups"
+    export: "/volume1/proxmox/backups"
+    content: "backup"
+    mount_point: "/mnt/pve/nfs-backups"
+    options: "vers=4.1,noatime"
+
+# Only configure storage on one node (cluster syncs config)
+configure_storage_on_primary: true

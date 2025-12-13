@@ -1,0 +1,30 @@
+---
+# Proxmox Cluster Role - Default Variables
+
+# Enable/disable cluster setup
+enable_proxmox_cluster: false
+
+# Cluster configuration
+cluster_name: "proxmox-cluster"
+cluster_role: "member"  # "primary" or "member"
+cluster_primary: ""     # Hostname of primary node (for members)
+
+# Cluster network
+# Uses management network by default
+# For dedicated cluster network, set cluster_link_address
+cluster_link_address: "{{ ansible_default_ipv4.address }}"
+cluster_link_priority: 1
+
+# Corosync settings
+corosync_expected_votes: 3
+corosync_two_node: false
+
+# SSH key distribution for cluster auth
+cluster_ssh_key_path: "/root/.ssh/id_ed25519"
+cluster_ssh_key_type: "ed25519"
+
+# Cluster join timeout (seconds)
+cluster_join_timeout: 120
+
+# Wait between cluster operations
+cluster_operation_delay: 10
