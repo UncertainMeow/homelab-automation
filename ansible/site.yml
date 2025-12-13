@@ -44,6 +44,16 @@
       tags: [thunderbolt, cluster, phase4]
       when: enable_thunderbolt_ring | default(false)
 
+    # Phase 4c: Proxmox Cluster Formation
+    - role: proxmox-cluster
+      tags: [proxmox-cluster, cluster, phase4]
+      when: enable_proxmox_cluster | default(false)
+
+    # Phase 4d: NFS Shared Storage
+    - role: nfs-storage
+      tags: [nfs-storage, storage, phase4]
+      when: enable_nfs_storage | default(false)
+
     # Phase 5: Templates & Infrastructure
     - role: vm-templates
       tags: [vm-templates, templates, phase5]

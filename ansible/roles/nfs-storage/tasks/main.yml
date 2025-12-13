@@ -1,0 +1,182 @@
+---
+# NFS Storage Role - Main Tasks
+# Configures NFS shared storage for Proxmox cluster HA
+
+- name: Display NFS storage configuration
+  debug:
+    msg: |
+      NFS Storage Configuration
+      =========================
+      NFS Server: {{ nfs_server }} ({{ nfs_server_name }})
+      Storages to configure: {{ nfs_storages | length }}
+  when: enable_nfs_storage | default(false)
+  tags: [nfs, storage]
+
+# ============================================
+# Prerequisites
+# ============================================
+- name: Install NFS client packages
+  apt:
+    name:
+      - nfs-common
+      - nfs4-acl-tools
+    state: present
+    update_cache: yes
+  when: enable_nfs_storage | default(false)
+  tags: [nfs, packages]
+
+- name: Ensure rpcbind is running
+  service:
+    name: rpcbind
+    state: started
+    enabled: yes
+  when: enable_nfs_storage | default(false)
+  tags: [nfs, services]
+
+# ============================================
+# Test NFS Connectivity
+# ============================================
+- name: Test NFS server connectivity
+  command: "showmount -e {{ nfs_server }}"
+  register: nfs_exports
+  changed_when: false
+  failed_when: false
+  when: enable_nfs_storage | default(false)
+  tags: [nfs, test]
+
+- name: Display available NFS exports
+  debug:
+    msg: "{{ nfs_exports.stdout_lines | default(['NFS server not reachable']) }}"
+  when: enable_nfs_storage | default(false)
+  tags: [nfs, test]
+
+- name: Fail if NFS server unreachable
+  fail:
+    msg: "Cannot reach NFS server {{ nfs_server }}. Check network and NFS exports."
+  when:
+    - enable_nfs_storage | default(false)
+    - nfs_exports.rc != 0
+  tags: [nfs, test]
+
+# ============================================
+# Create Mount Points
+# ============================================
+- name: Create NFS mount directories
+  file:
+    path: "{{ item.mount_point }}"
+    state: directory
+    mode: '0755'
+  loop: "{{ nfs_storages }}"
+  when: enable_nfs_storage | default(false)
+  tags: [nfs, mounts]
+
+# ============================================
+# Configure Proxmox Storage (Primary Node Only)
+# ============================================
+# Storage config is cluster-wide, only needs to run on one node
+- name: Check if storage already configured
+  command: "pvesm status -storage {{ item.name }}"
+  loop: "{{ nfs_storages }}"
+  register: storage_status
+  changed_when: false
+  failed_when: false
+  when:
+    - enable_nfs_storage | default(false)
+    - configure_storage_on_primary | default(true)
+    - cluster_role | default('member') == 'primary'
+  tags: [nfs, proxmox]
+
+- name: Add NFS storage to Proxmox
+  command: >
+    pvesm add nfs {{ item.item.name }}
+    --server {{ nfs_server }}
+    --export {{ item.item.export }}
+    --content {{ item.item.content }}
+    --options {{ item.item.options }}
+  loop: "{{ storage_status.results | default([]) }}"
+  when:
+    - enable_nfs_storage | default(false)
+    - configure_storage_on_primary | default(true)
+    - cluster_role | default('member') == 'primary'
+    - item.rc != 0
+  register: storage_add_result
+  tags: [nfs, proxmox]
+
+# ============================================
+# Verify Storage on All Nodes
+# ============================================
+- name: Verify NFS storage is accessible
+  command: "pvesm status -storage {{ item.name }}"
+  loop: "{{ nfs_storages }}"
+  register: final_storage_status
+  changed_when: false
+  failed_when: false
+  when: enable_nfs_storage | default(false)
+  tags: [nfs, verify]
+
+- name: Display storage status
+  debug:
+    msg: |
+      Storage: {{ item.item.name }}
+      Status: {{ 'OK' if item.rc == 0 else 'NOT CONFIGURED' }}
+      {% if item.rc == 0 %}
+      {{ item.stdout }}
+      {% endif %}
+  loop: "{{ final_storage_status.results | default([]) }}"
+  when: enable_nfs_storage | default(false)
+  tags: [nfs, verify]
+
+# ============================================
+# Info File
+# ============================================
+- name: Create NFS storage info file
+  copy:
+    dest: /root/nfs-storage-info.txt
+    content: |
+      NFS Shared Storage Configuration
+      ==================================
+      Node: {{ inventory_hostname }}
+      Configured: {{ ansible_date_time.iso8601 }}
+
+      NFS Server: {{ nfs_server }} ({{ nfs_server_name }})
+
+      Configured Storages:
+      {% for storage in nfs_storages %}
+      - {{ storage.name }}
+        Export: {{ nfs_server }}:{{ storage.export }}
+        Content: {{ storage.content }}
+        Mount: {{ storage.mount_point }}
+      {% endfor %}
+
+      Proxmox Commands:
+      - List storage: pvesm status
+      - Storage details: pvesm list <storage-name>
+      - Rescan storage: pvesm scan nfs {{ nfs_server }}
+
+      Troubleshooting:
+      - Check mounts: mount | grep nfs
+      - Test export: showmount -e {{ nfs_server }}
+      - NFS stats: nfsstat -c
+
+      HA Notes:
+      - All cluster nodes see the same storage
+      - VMs on NFS can failover between nodes
+      - NFS server ({{ nfs_server_name }}) is single point of failure
+    mode: '0644'
+  when: enable_nfs_storage | default(false)
+  tags: [nfs]
+
+- name: Display NFS storage summary
+  debug:
+    msg: |
+      NFS Storage Setup Complete!
+      ============================
+      Server: {{ nfs_server }} ({{ nfs_server_name }})
+      Storages configured: {{ nfs_storages | map(attribute='name') | join(', ') }}
+
+      VMs stored on NFS can now failover between cluster nodes.
+
+      Verify in Proxmox UI:
+      Datacenter → Storage → Should see {{ nfs_storages | length }} NFS entries
+  when: enable_nfs_storage | default(false)
+  tags: [nfs]

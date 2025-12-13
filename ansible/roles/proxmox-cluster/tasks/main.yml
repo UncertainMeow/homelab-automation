@@ -1,0 +1,264 @@
+---
+# Proxmox Cluster Role - Main Tasks
+# Creates or joins a Proxmox VE cluster
+
+- name: Display cluster configuration
+  debug:
+    msg: |
+      Proxmox Cluster Configuration
+      =============================
+      Host: {{ inventory_hostname }}
+      Role: {{ cluster_role }}
+      Cluster Name: {{ cluster_name }}
+      {% if cluster_role == 'member' %}
+      Primary Node: {{ cluster_primary }}
+      {% endif %}
+  when: enable_proxmox_cluster | default(false)
+  tags: [cluster]
+
+# ============================================
+# Prerequisites
+# ============================================
+- name: Validate cluster configuration
+  assert:
+    that:
+      - cluster_name is defined
+      - cluster_name | length > 0
+      - cluster_role in ['primary', 'member']
+    fail_msg: "Invalid cluster configuration. Check cluster_name and cluster_role in host_vars."
+  when: enable_proxmox_cluster | default(false)
+  tags: [cluster]
+
+- name: Validate member configuration
+  assert:
+    that:
+      - cluster_primary is defined
+      - cluster_primary | length > 0
+    fail_msg: "Members must define cluster_primary (hostname of primary node)"
+  when:
+    - enable_proxmox_cluster | default(false)
+    - cluster_role == 'member'
+  tags: [cluster]
+
+- name: Check if cluster already exists
+  command: pvecm status
+  register: cluster_status
+  changed_when: false
+  failed_when: false
+  when: enable_proxmox_cluster | default(false)
+  tags: [cluster]
+
+- name: Set cluster state facts
+  set_fact:
+    cluster_exists: "{{ 'Cluster information' in cluster_status.stdout | default('') }}"
+    cluster_member: "{{ 'Nodelist' in cluster_status.stdout | default('') }}"
+  when: enable_proxmox_cluster | default(false)
+  tags: [cluster]
+
+# ============================================
+# SSH Key Setup for Cluster Communication
+# ============================================
+- name: Generate SSH key for cluster communication
+  openssh_keypair:
+    path: "{{ cluster_ssh_key_path }}"
+    type: "{{ cluster_ssh_key_type }}"
+    comment: "cluster-{{ inventory_hostname }}"
+  when: enable_proxmox_cluster | default(false)
+  tags: [cluster, ssh]
+
+- name: Read public SSH key
+  slurp:
+    src: "{{ cluster_ssh_key_path }}.pub"
+  register: cluster_ssh_pubkey
+  when: enable_proxmox_cluster | default(false)
+  tags: [cluster, ssh]
+
+- name: Ensure SSH key is in authorized_keys
+  authorized_key:
+    user: root
+    key: "{{ cluster_ssh_pubkey.content | b64decode }}"
+    state: present
+  when: enable_proxmox_cluster | default(false)
+  tags: [cluster, ssh]
+
+# ============================================
+# Primary Node - Create Cluster
+# ============================================
+- name: Create Proxmox cluster (primary node)
+  command: "pvecm create {{ cluster_name }}"
+  when:
+    - enable_proxmox_cluster | default(false)
+    - cluster_role == 'primary'
+    - not cluster_exists
+  register: cluster_create_result
+  tags: [cluster, create]
+
+- name: Wait for cluster to stabilize
+  pause:
+    seconds: "{{ cluster_operation_delay }}"
+  when:
+    - enable_proxmox_cluster | default(false)
+    - cluster_role == 'primary'
+    - cluster_create_result is changed
+  tags: [cluster]
+
+# ============================================
+# Member Nodes - Join Cluster
+# ============================================
+- name: Resolve primary node IP
+  set_fact:
+    primary_node_ip: "{{ hostvars[cluster_primary].ansible_host | default(hostvars[cluster_primary].management_ip) }}"
+  when:
+    - enable_proxmox_cluster | default(false)
+    - cluster_role == 'member'
+  tags: [cluster, join]
+
+- name: Add primary node to known_hosts
+  known_hosts:
+    name: "{{ primary_node_ip }}"
+    key: "{{ lookup('pipe', 'ssh-keyscan -t ed25519 ' + primary_node_ip) }}"
+    state: present
+  when:
+    - enable_proxmox_cluster | default(false)
+    - cluster_role == 'member'
+    - not cluster_member
+  tags: [cluster, join]
+
+- name: Copy SSH key to primary node
+  command: >
+    sshpass -p "{{ cluster_join_password | default('') }}"
+    ssh-copy-id -i {{ cluster_ssh_key_path }}.pub
+    -o StrictHostKeyChecking=no
+    root@{{ primary_node_ip }}
+  when:
+    - enable_proxmox_cluster | default(false)
+    - cluster_role == 'member'
+    - not cluster_member
+    - cluster_join_password is defined
+  no_log: true
+  tags: [cluster, join]
+
+- name: Join Proxmox cluster (member node)
+  command: "pvecm add {{ primary_node_ip }} --use_ssh"
+  when:
+    - enable_proxmox_cluster | default(false)
+    - cluster_role == 'member'
+    - not cluster_member
+  register: cluster_join_result
+  tags: [cluster, join]
+
+- name: Wait for cluster join to complete
+  pause:
+    seconds: "{{ cluster_operation_delay }}"
+  when:
+    - enable_proxmox_cluster | default(false)
+    - cluster_role == 'member'
+    - cluster_join_result is changed
+  tags: [cluster]
+
+# ============================================
+# Cluster Verification
+# ============================================
+- name: Verify cluster status
+  command: pvecm status
+  register: final_cluster_status
+  changed_when: false
+  when: enable_proxmox_cluster | default(false)
+  tags: [cluster, verify]
+
+- name: Display cluster status
+  debug:
+    msg: "{{ final_cluster_status.stdout_lines }}"
+  when: enable_proxmox_cluster | default(false)
+  tags: [cluster, verify]
+
+- name: Get cluster node list
+  command: pvecm nodes
+  register: cluster_nodes
+  changed_when: false
+  when: enable_proxmox_cluster | default(false)
+  tags: [cluster, verify]
+
+- name: Display cluster nodes
+  debug:
+    msg: "{{ cluster_nodes.stdout_lines }}"
+  when: enable_proxmox_cluster | default(false)
+  tags: [cluster, verify]
+
+# ============================================
+# Cluster Network (Thunderbolt)
+# ============================================
+- name: Configure cluster to use Thunderbolt network
+  command: >
+    pvecm updatecoros
+    --link0 {{ thunderbolt_loopback_ipv4 | default(cluster_link_address) }}
+    --priority0 {{ cluster_link_priority }}
+  when:
+    - enable_proxmox_cluster | default(false)
+    - enable_thunderbolt_ring | default(false)
+    - cluster_exists or cluster_create_result is changed or cluster_join_result is changed
+  register: cluster_network_update
+  failed_when: false
+  tags: [cluster, network]
+
+# ============================================
+# Info File
+# ============================================
+- name: Create cluster info file
+  copy:
+    dest: /root/cluster-info.txt
+    content: |
+      Proxmox Cluster Configuration
+      ==============================
+      Node: {{ inventory_hostname }}
+      Role: {{ cluster_role }}
+      Cluster Name: {{ cluster_name }}
+      Configured: {{ ansible_date_time.iso8601 }}
+
+      {% if cluster_role == 'member' %}
+      Primary Node: {{ cluster_primary }} ({{ primary_node_ip | default('N/A') }})
+      {% endif %}
+
+      Status Commands:
+      - Cluster status: pvecm status
+      - Node list: pvecm nodes
+      - Expected votes: pvecm expected
+      - Quorum info: corosync-quorumtool -s
+
+      Troubleshooting:
+      - Corosync logs: journalctl -u corosync
+      - Cluster logs: journalctl -u pve-cluster
+      - Ring status: corosync-cfgtool -s
+
+      Important:
+      - Never start cluster operations on multiple nodes simultaneously
+      - Always check quorum before maintenance: pvecm expected
+      - For split-brain recovery, see Proxmox documentation
+    mode: '0644'
+  when: enable_proxmox_cluster | default(false)
+  tags: [cluster]
+
+- name: Display cluster setup summary
+  debug:
+    msg: |
+      Proxmox Cluster Setup Complete!
+      ================================
+      Node: {{ inventory_hostname }}
+      Role: {{ cluster_role }}
+      Cluster: {{ cluster_name }}
+
+      {% if cluster_role == 'primary' %}
+      This node created the cluster. Other nodes can now join.
+      {% else %}
+      This node joined cluster via {{ cluster_primary }}.
+      {% endif %}
+
+      Next Steps:
+      1. Verify cluster health: pvecm status
+      2. Check all nodes: pvecm nodes
+      3. Configure shared storage (Ceph)
+      4. Test HA features
+
+      Web UI: https://{{ ansible_default_ipv4.address }}:8006
+  when: enable_proxmox_cluster | default(false)
+  tags: [cluster]

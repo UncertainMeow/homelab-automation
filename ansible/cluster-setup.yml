@@ -1,0 +1,264 @@
+---
+# MS-01 Cluster Setup Playbook
+# Deploys a 3-node Proxmox HA cluster with Thunderbolt networking and NFS storage
+#
+# Prerequisites:
+# - Proxmox VE installed on all 3 nodes
+# - Network connectivity to all nodes
+# - SSH keys configured (run site.yml with user-management first)
+#
+# Usage:
+#   # Phase 1: Base setup on all nodes (users, dotfiles, base config)
+#   ansible-playbook -i inventory-prod.ini cluster-setup.yml --tags phase1
+#
+#   # Phase 2: Thunderbolt networking (AFTER connecting cables)
+#   ansible-playbook -i inventory-prod.ini cluster-setup.yml --tags phase2
+#
+#   # Phase 3: Create cluster (primary first, then members)
+#   ansible-playbook -i inventory-prod.ini cluster-setup.yml --tags phase3
+#
+#   # Phase 4: Add NFS storage
+#   ansible-playbook -i inventory-prod.ini cluster-setup.yml --tags phase4
+#
+#   # Full deployment (all phases)
+#   ansible-playbook -i inventory-prod.ini cluster-setup.yml
+
+# ============================================
+# Phase 1: Base Configuration (All Nodes)
+# ============================================
+- name: "Phase 1: Base configuration for cluster nodes"
+  hosts: ms01_cluster
+  become: yes
+  tags: [phase1, base]
+
+  roles:
+    - role: proxmox-base
+      tags: [base]
+
+    - role: user-management
+      tags: [users]
+
+    - role: proxmox-community-scripts
+      tags: [community-scripts]
+
+    - role: dotfiles-portable
+      tags: [dotfiles]
+      when: deploy_dotfiles | default(true)
+
+  post_tasks:
+    - name: Display Phase 1 completion
+      debug:
+        msg: |
+          Phase 1 Complete: {{ inventory_hostname }}
+          ==========================================
+          ✅ Base system configured
+          ✅ Users created (kellen, ansible)
+          ✅ Community scripts installed
+          ✅ Dotfiles deployed
+
+          Next: Connect Thunderbolt cables, then run Phase 2
+          Cable topology:
+            Frege ←→ Russell (cable 1)
+            Russell ←→ Wittgenstein (cable 2)
+            Wittgenstein ←→ Frege (cable 3)
+      tags: [always]
+
+# ============================================
+# Phase 2: Thunderbolt Networking (All Nodes)
+# ============================================
+- name: "Phase 2: Configure Thunderbolt ring network"
+  hosts: ms01_cluster
+  become: yes
+  tags: [phase2, thunderbolt]
+
+  pre_tasks:
+    - name: Reminder about Thunderbolt cables
+      debug:
+        msg: |
+          IMPORTANT: Ensure Thunderbolt cables are connected!
+
+          Cable topology:
+            Frege ←→ Russell (cable 1)
+            Russell ←→ Wittgenstein (cable 2)
+            Wittgenstein ←→ Frege (cable 3)
+
+          If cables are not connected, this phase will configure
+          the software but interfaces won't come up until connected.
+      tags: [always]
+
+  roles:
+    - role: thunderbolt-ring
+      tags: [thunderbolt]
+      when: enable_thunderbolt_ring | default(false)
+
+  post_tasks:
+    - name: Display Phase 2 completion
+      debug:
+        msg: |
+          Phase 2 Complete: {{ inventory_hostname }}
+          ==========================================
+          ✅ Thunderbolt kernel modules loaded
+          ✅ Network interfaces configured (en05, en06)
+          ✅ IRQ affinity optimized
+
+          ⚠️  REBOOT REQUIRED to activate Thunderbolt networking!
+
+          After reboot:
+          1. Verify links: lldpctl
+          2. Test bandwidth: iperf3 -s (on one node)
+                            iperf3 -c 169.254.1.X (from another)
+          3. Expected: ~25 Gbps per link
+
+          Next: Reboot all nodes, then run Phase 3
+      when: enable_thunderbolt_ring | default(false)
+      tags: [always]
+
+# ============================================
+# Phase 3a: Create Cluster (Primary Node)
+# ============================================
+- name: "Phase 3a: Create cluster on primary node"
+  hosts: ms01_cluster_primary
+  become: yes
+  tags: [phase3, cluster, cluster-create]
+  serial: 1  # Run on one host at a time
+
+  roles:
+    - role: proxmox-cluster
+      tags: [cluster]
+      when: enable_proxmox_cluster | default(false)
+
+  post_tasks:
+    - name: Display cluster creation status
+      debug:
+        msg: |
+          Cluster Created: {{ cluster_name }}
+          =====================================
+          Primary node: {{ inventory_hostname }}
+
+          Verify: pvecm status
+
+          Next: Run Phase 3b to join member nodes
+      when: enable_proxmox_cluster | default(false)
+      tags: [always]
+
+# ============================================
+# Phase 3b: Join Cluster (Member Nodes)
+# ============================================
+- name: "Phase 3b: Join member nodes to cluster"
+  hosts: ms01_cluster_members
+  become: yes
+  tags: [phase3, cluster, cluster-join]
+  serial: 1  # Join one at a time to avoid race conditions
+
+  roles:
+    - role: proxmox-cluster
+      tags: [cluster]
+      when: enable_proxmox_cluster | default(false)
+
+  post_tasks:
+    - name: Wait between node joins
+      pause:
+        seconds: 15
+        prompt: "Waiting for cluster to stabilize before next node..."
+      when: enable_proxmox_cluster | default(false)
+      tags: [cluster]
+
+    - name: Display join status
+      debug:
+        msg: |
+          Node Joined: {{ inventory_hostname }} → {{ cluster_name }}
+          ==================================================
+          Joined via: {{ cluster_primary }}
+
+          Verify: pvecm nodes
+      when: enable_proxmox_cluster | default(false)
+      tags: [always]
+
+# ============================================
+# Phase 4: NFS Shared Storage
+# ============================================
+- name: "Phase 4: Configure NFS shared storage"
+  hosts: ms01_cluster
+  become: yes
+  tags: [phase4, storage, nfs]
+
+  roles:
+    - role: nfs-storage
+      tags: [nfs, storage]
+      when: enable_nfs_storage | default(false)
+
+  post_tasks:
+    - name: Display storage configuration
+      debug:
+        msg: |
+          NFS Storage Configured: {{ inventory_hostname }}
+          =================================================
+          NFS Server: {{ nfs_server | default('10.203.3.99') }}
+
+          Configured storages:
+          {% for storage in nfs_storages | default([]) %}
+          - {{ storage.name }}: {{ storage.content }}
+          {% endfor %}
+
+          Verify in Proxmox UI:
+          Datacenter → Storage
+      when: enable_nfs_storage | default(false)
+      tags: [always]
+
+# ============================================
+# Final Verification
+# ============================================
+- name: "Final: Verify cluster health"
+  hosts: ms01_cluster_primary
+  become: yes
+  tags: [verify, final]
+
+  tasks:
+    - name: Get cluster status
+      command: pvecm status
+      register: cluster_status
+      changed_when: false
+      failed_when: false
+
+    - name: Get cluster nodes
+      command: pvecm nodes
+      register: cluster_nodes
+      changed_when: false
+      failed_when: false
+
+    - name: Get storage status
+      command: pvesm status
+      register: storage_status
+      changed_when: false
+      failed_when: false
+
+    - name: Display final cluster status
+      debug:
+        msg: |
+          ╔══════════════════════════════════════════════════════════╗
+          ║   MS-01 Cluster Setup Complete! 🎉                       ║
+          ╚══════════════════════════════════════════════════════════╝
+
+          CLUSTER STATUS:
+          {{ cluster_status.stdout | default('Unable to get status') }}
+
+          CLUSTER NODES:
+          {{ cluster_nodes.stdout | default('Unable to get nodes') }}
+
+          STORAGE:
+          {{ storage_status.stdout | default('Unable to get storage') }}
+
+          ════════════════════════════════════════════════════════════
+
+          Access Points:
+          - Frege:        https://10.203.3.11:8006
+          - Russell:      https://10.203.3.12:8006
+          - Wittgenstein: https://10.203.3.13:8006
+
+          Next Steps:
+          1. Create HA group in Datacenter → HA → Groups
+          2. Create test VM on NFS storage
+          3. Add VM to HA group
+          4. Test failover by shutting down a node
+
+          ════════════════════════════════════════════════════════════

@@ -1,0 +1,67 @@
+---
+# Wittgenstein - MS-01 Cluster Node 3
+# Philosophy: Ludwig Wittgenstein - language and logic
+
+# ============================================
+# Host Description
+# ============================================
+host_description: "MS-01 Cluster Node 3 - Wittgenstein"
+
+# ============================================
+# Cluster Configuration
+# ============================================
+# Wittgenstein joins the cluster after Frege creates it
+enable_proxmox_cluster: true
+cluster_role: "member"
+cluster_name: "ms01-cluster"
+cluster_primary: "frege"  # Node to join
+
+# ============================================
+# Thunderbolt Ring Network
+# ============================================
+enable_thunderbolt_ring: true
+thunderbolt_node_id: 3
+
+# i9-13900H P-cores for IRQ affinity
+thunderbolt_perf_cores: "0-5"
+
+# PCI paths for MS-01 Thunderbolt interfaces
+# Default values should work, but verify with: udevadm monitor
+# thunderbolt_interfaces:
+#   - name: en05
+#     pci_path: "0000:00:0d.2"
+#   - name: en06
+#     pci_path: "0000:00:0d.3"
+
+# ============================================
+# NFS Shared Storage (from stuffs NAS)
+# ============================================
+enable_nfs_storage: true
+
+# Only primary configures storage, members just verify
+configure_storage_on_primary: false
+
+# ============================================
+# Phase Control
+# ============================================
+# Minimal setup for cluster node
+enable_pci_passthrough: false  # No GPU passthrough on MS-01
+enable_nvidia_setup: false     # No NVIDIA GPUs
+create_tailscale_router: true  # Emergency beacon
+create_vm_templates: false     # Not needed initially
+download_lxc_templates: false  # Not needed initially
+deploy_dotfiles: true          # Shell comforts
+generate_snapshot: true        # Documentation
+
+# Tailscale beacon
+tailscale_router_hostname: "tsb-wittgenstein"
+
+# ============================================
+# Network Configuration
+# ============================================
+# Management network (standard LAN)
+management_ip: "10.203.3.13"
+management_gateway: "10.203.3.1"
+
+# Cluster network uses Thunderbolt ring
+# IP assigned automatically: 169.254.1.3/24

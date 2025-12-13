@@ -1,0 +1,87 @@
+---
+# Frege - MS-01 Cluster Node 1
+# Philosophy: Gottlob Frege - foundations of logic and language
+
+# ============================================
+# Host Description
+# ============================================
+host_description: "MS-01 Cluster Node 1 - Frege"
+
+# ============================================
+# Cluster Configuration
+# ============================================
+# Frege is the primary node - cluster will be created here first
+enable_proxmox_cluster: true
+cluster_role: "primary"
+cluster_name: "ms01-cluster"
+
+# ============================================
+# Thunderbolt Ring Network
+# ============================================
+enable_thunderbolt_ring: true
+thunderbolt_node_id: 1
+
+# i9-13900H P-cores for IRQ affinity
+thunderbolt_perf_cores: "0-5"
+
+# PCI paths for MS-01 Thunderbolt interfaces
+# Default values should work, but verify with: udevadm monitor
+# thunderbolt_interfaces:
+#   - name: en05
+#     pci_path: "0000:00:0d.2"
+#   - name: en06
+#     pci_path: "0000:00:0d.3"
+
+# ============================================
+# NFS Shared Storage (from stuffs NAS)
+# ============================================
+enable_nfs_storage: true
+
+# Primary node configures storage (cluster syncs to others)
+configure_storage_on_primary: true
+
+# NFS exports from stuffs (10.203.3.99)
+# Adjust paths to match your NAS export structure
+nfs_storages:
+  - name: "nfs-vms"
+    export: "/volume1/proxmox/vms"
+    content: "images,rootdir"
+    mount_point: "/mnt/pve/nfs-vms"
+    options: "vers=4.1,noatime,nodiratime"
+
+  - name: "nfs-isos"
+    export: "/volume1/proxmox/isos"
+    content: "iso,vztmpl"
+    mount_point: "/mnt/pve/nfs-isos"
+    options: "vers=4.1,noatime"
+
+  - name: "nfs-backups"
+    export: "/volume1/proxmox/backups"
+    content: "backup"
+    mount_point: "/mnt/pve/nfs-backups"
+    options: "vers=4.1,noatime"
+
+# ============================================
+# Phase Control
+# ============================================
+# Minimal setup for cluster node
+enable_pci_passthrough: false  # No GPU passthrough on MS-01
+enable_nvidia_setup: false     # No NVIDIA GPUs
+create_tailscale_router: true  # Emergency beacon
+create_vm_templates: false     # Not needed initially
+download_lxc_templates: false  # Not needed initially
+deploy_dotfiles: true          # Shell comforts
+generate_snapshot: true        # Documentation
+
+# Tailscale beacon
+tailscale_router_hostname: "tsb-frege"
+
+# ============================================
+# Network Configuration
+# ============================================
+# Management network (standard LAN)
+management_ip: "10.203.3.11"
+management_gateway: "10.203.3.1"
+
+# Cluster network uses Thunderbolt ring
+# IP assigned automatically: 169.254.1.1/24
