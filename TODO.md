@@ -82,21 +82,21 @@ Infrastructure-as-code for a Proxmox-based homelab with focus on:
 
 ## Roadmap
 
-### Phase 1: Socrates Completion (Current)
+### Phase 1: Socrates Completion ✅
 
-- [ ] **Deploy Docker stacks to AI containers**
-  - [ ] SSH into ai-gpu0, deploy llm-stack
-  - [ ] SSH into ai-gpu1, deploy ai-stack
-  - [ ] Verify Ollama is GPU-accelerated
-  - [ ] Pull initial models (llama3.2:3b, llava:7b)
+- [x] **Deploy Docker stacks to AI containers**
+  - [x] ai-gpu0: Native Ollama + Open WebUI + Khoj (Docker)
+  - [x] ai-gpu1: Karakeep + Meilisearch + Chrome (Docker)
+  - [x] Verified Ollama is GPU-accelerated
+  - [x] Models available: llama3.1:8b, mistral:7b, llava:7b
 
-- [ ] **Verify GPU containers**
-  - [ ] Start ai-gpu0, verify GPU access with `nvidia-smi`
-  - [ ] Start ai-unified, verify both GPUs accessible
-  - [ ] Test exclusive GPU mode (only one container per GPU)
+- [x] **Verify GPU containers**
+  - [x] ai-gpu0 has 1x Tesla P40 (24GB)
+  - [x] ai-unified has 2x Tesla P40 (48GB)
+  - [x] ai-gpu1 has 1x Tesla P40 (24GB)
 
-- [ ] **Model storage setup**
-  - [ ] Create /srv/ai-models on Socrates
+- [ ] **Model storage setup** (optional)
+  - [ ] Create /srv/ai-models on Socrates for shared model cache
   - [ ] Mount to containers (defined in host_vars)
 
 ### Phase 2: Expand to Other Hosts
@@ -142,6 +142,7 @@ Infrastructure-as-code for a Proxmox-based homelab with focus on:
 
 - [ ] **AI Application Integration**
   - [ ] Connect Khoj to document sources
+  - [ ] Integrate khoj-utils (https://github.com/UncertainMeow/khoj-utils.git)
   - [ ] Set up Karakeep for bookmarking
   - [ ] API access for external applications
 
@@ -203,6 +204,21 @@ These are significant pieces of work that will be tackled separately:
 
 ## Quick Reference
 
+### Service Access URLs (Socrates)
+
+| Service | Container | URL | Notes |
+|---------|-----------|-----|-------|
+| **Ollama API** | ai-gpu0 | `http://10.203.3.184:11434` | Native install, GPU-accelerated |
+| **Open WebUI** | ai-gpu0 | `http://10.203.3.184:8080` | Chat interface for Ollama |
+| **Khoj** | ai-gpu0 | `http://10.203.3.184:42110` | AI knowledge assistant |
+| **Karakeep** | ai-gpu1 | `http://10.203.3.153:3000` | AI bookmarking |
+| **Meilisearch** | ai-gpu1 | Internal only (7700) | Search backend for Karakeep |
+
+**Available Models (Ollama):**
+- llama3.1:8b (general chat)
+- mistral:7b (general chat)
+- llava:7b (vision/image understanding)
+
 ### Key Commands
 
 ```bash
@@ -246,17 +262,12 @@ ssh kellen@10.203.3.47  # rawls
 
 ---
 
-## Uncommitted Changes
+## Session Log
 
-As of last session:
-- `ansible/host_vars/socrates.yml` (modified)
-- `ansible/roles/nvidia-lxc-ai/*` (modified)
-- `ansible/roles/proxmox-nvidia-gpu/*` (modified)
-- `ansible/roles/proxmox-pci-passthrough/*` (modified)
-- `services/` (new directory, untracked)
+**2025-12-13**: Phase 1 (Socrates) complete
+- All GPU containers verified and operational
+- Native Ollama on ai-gpu0 with GPU acceleration
+- Docker services (Open WebUI, Khoj, Karakeep) running
+- Service URLs documented in Quick Reference
 
-**Action**: Review and commit these changes.
-
----
-
-*Last updated: Session continuation*
+**Next session**: Phase 2 (Zeno/Rawls) or Phase 3 (DNS/networking)
