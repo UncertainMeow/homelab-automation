@@ -1,0 +1,206 @@
+---
+# Proxmox Backup Client Role
+# Configures PVE nodes to backup to PBS
+
+# ============================================
+# Validation
+# ============================================
+- name: Verify this is a Proxmox VE host
+  stat:
+    path: /etc/pve
+  register: pve_check
+  tags: [pbs-client, validate]
+
+- name: Fail if not a PVE host
+  assert:
+    that:
+      - pve_check.stat.exists
+      - pve_check.stat.isdir
+    fail_msg: "This role must be run on a Proxmox VE host (/etc/pve not found)"
+  tags: [pbs-client, validate]
+
+- name: Check for pvesh command
+  command: which pvesh
+  register: pvesh_check
+  changed_when: false
+  failed_when: false
+  tags: [pbs-client, validate]
+
+- name: Fail if pvesh not found
+  fail:
+    msg: "pvesh command not found - is this a Proxmox VE host?"
+  when: pvesh_check.rc != 0
+  tags: [pbs-client, validate]
+
+# ============================================
+# Prerequisites
+# ============================================
+- name: Install required packages
+  apt:
+    name:
+      - jq
+      - openssl
+    state: present
+  tags: [pbs-client, packages]
+
+# ============================================
+# Connectivity Check
+# ============================================
+- name: Test connectivity to PBS server
+  wait_for:
+    host: "{{ pbs_server }}"
+    port: 8007
+    timeout: 10
+  when: pbs_verify_connectivity | default(true)
+  tags: [pbs-client, connectivity]
+
+- name: Get PBS TLS fingerprint
+  shell: |
+    openssl s_client -connect {{ pbs_server }}:8007 -showcerts </dev/null 2>/dev/null \
+      | openssl x509 -fingerprint -noout -sha256 | cut -d'=' -f2
+  register: pbs_fingerprint_result
+  changed_when: false
+  when: pbs_fingerprint is not defined
+  tags: [pbs-client, connectivity]
+
+- name: Set PBS fingerprint fact
+  set_fact:
+    pbs_fingerprint_actual: "{{ pbs_fingerprint | default(pbs_fingerprint_result.stdout) }}"
+  tags: [pbs-client, connectivity]
+
+# ============================================
+# Add PBS Storage
+# ============================================
+- name: Check existing PBS storage configurations
+  shell: pvesh get /storage --output-format json
+  register: existing_storage
+  changed_when: false
+  when: pbs_add_storage | default(true)
+  tags: [pbs-client, storage]
+
+- name: Parse existing storage names
+  set_fact:
+    existing_storage_names: "{{ (existing_storage.stdout | from_json) | map(attribute='storage') | list }}"
+  when: pbs_add_storage | default(true)
+  tags: [pbs-client, storage]
+
+- name: Add PBS storage configurations
+  command: >
+    pvesh create /storage
+    --storage {{ item.name }}
+    --type pbs
+    --server {{ pbs_server }}
+    --datastore {{ item.datastore }}
+    --username '{{ pbs_backup_user }}!{{ pbs_backup_token_name }}'
+    --password '{{ pbs_token_secret }}'
+    --fingerprint '{{ pbs_fingerprint_actual }}'
+    --content {{ item.content | default('backup') }}
+  loop: "{{ pbs_storage_configs }}"
+  when:
+    - pbs_add_storage | default(true)
+    - pbs_token_secret is defined
+    - item.name not in existing_storage_names
+  no_log: true  # Hide token secret from logs
+  tags: [pbs-client, storage]
+
+- name: Display storage setup status
+  debug:
+    msg: |
+      PBS Storage Configuration:
+      {% for item in pbs_storage_configs %}
+      - {{ item.name }}: {% if item.name in existing_storage_names %}Already exists{% else %}{% if pbs_token_secret is defined %}Added{% else %}Skipped (no token){% endif %}{% endif %}
+      {% endfor %}
+  when: pbs_add_storage | default(true)
+  tags: [pbs-client, storage]
+
+# ============================================
+# Create Backup Jobs
+# ============================================
+- name: Check existing backup jobs
+  shell: pvesh get /cluster/backup --output-format json
+  register: existing_backup_jobs
+  changed_when: false
+  when:
+    - pbs_create_backup_jobs | default(true)
+    - pbs_backup_jobs is defined
+  tags: [pbs-client, backup-jobs]
+
+- name: Create backup jobs
+  command: >
+    pvesh create /cluster/backup
+    --storage {{ item.storage }}
+    --vmid '{{ item.vmid }}'
+    --schedule '{{ item.schedule | default("03:15") }}'
+    --mode {{ item.mode | default(pbs_backup_mode) }}
+    --compress {{ item.compress | default(pbs_backup_compress) }}
+    --enabled {{ 1 if (item.enabled | default(pbs_backup_enabled)) else 0 }}
+    --comment '{{ item.name }}'
+  loop: "{{ pbs_backup_jobs | default([]) }}"
+  when:
+    - pbs_create_backup_jobs | default(true)
+    - pbs_backup_jobs is defined
+  tags: [pbs-client, backup-jobs]
+
+# ============================================
+# Generate Info File
+# ============================================
+- name: Generate PBS client configuration summary
+  copy:
+    content: |
+      ╔════════════════════════════════════════════════════════════╗
+      ║   PBS Client Configuration - {{ inventory_hostname }}
+      ║   Configured by Ansible
+      ╚════════════════════════════════════════════════════════════╝
+
+      Generated: {{ ansible_date_time.iso8601 }}
+
+      == PBS Server ==
+      Server: {{ pbs_server }}
+      Port: 8007
+      Fingerprint: {{ pbs_fingerprint_actual }}
+
+      == Storage Configurations ==
+      {% for item in pbs_storage_configs %}
+      - {{ item.name }} -> {{ item.datastore }}
+      {% endfor %}
+
+      == Backup Jobs ==
+      {% if pbs_backup_jobs is defined %}
+      {% for job in pbs_backup_jobs %}
+      - {{ job.name }}: VMs {{ job.vmid }} -> {{ job.storage }} @ {{ job.schedule | default("03:15") }}
+      {% endfor %}
+      {% else %}
+      No backup jobs configured via Ansible
+      {% endif %}
+
+      == Manual Commands ==
+      # List backup storage
+      pvesh get /storage | jq '.[] | select(.type=="pbs")'
+
+      # Trigger manual backup
+      vzdump <vmid> --storage pbs-infra --mode snapshot --compress zstd
+
+      # List backups
+      pvesh get /nodes/{{ inventory_hostname }}/storage/pbs-infra/content
+
+    dest: /root/pbs-client-info.txt
+    mode: '0600'
+  tags: [pbs-client, info]
+
+- name: Display completion summary
+  debug:
+    msg: |
+      ╔══════════════════════════════════════════════════════════════╗
+      ║   PBS Client Configuration Complete!                        ║
+      ╚══════════════════════════════════════════════════════════════╝
+
+      Host: {{ inventory_hostname }}
+      PBS Server: {{ pbs_server }}
+
+      Storage configured: {{ pbs_storage_configs | map(attribute='name') | join(', ') }}
+      {% if pbs_backup_jobs is defined %}
+      Backup jobs: {{ pbs_backup_jobs | map(attribute='name') | join(', ') }}
+      {% endif %}
+
+      See /root/pbs-client-info.txt for details.
+  tags: [always]

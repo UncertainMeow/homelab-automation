@@ -1,0 +1,17 @@
+---
+# Handlers for Proxmox Backup Server role
+
+- name: restart sshd
+  service:
+    name: sshd
+    state: restarted
+
+- name: restart proxmox-backup
+  service:
+    name: proxmox-backup
+    state: restarted
+
+- name: restart proxmox-backup-proxy
+  service:
+    name: proxmox-backup-proxy
+    state: restarted

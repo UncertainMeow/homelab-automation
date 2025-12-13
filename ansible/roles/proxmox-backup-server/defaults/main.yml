@@ -1,0 +1,86 @@
+---
+# Proxmox Backup Server Role - Default Variables
+# Override these in host_vars or group_vars as needed
+
+# ============================================
+# PBS Datastore Configuration
+# ============================================
+# Datastores to create on PBS
+pbs_datastores:
+  - name: infra
+    path: /mnt/datastore/infra
+    comment: "Infrastructure VMs and containers"
+  - name: media
+    path: /mnt/datastore/media
+    comment: "Media server backups"
+  - name: test
+    path: /mnt/datastore/test
+    comment: "Development and testing"
+
+# ZFS pool for datastores (auto-detected if not set)
+pbs_zfs_pool: ""
+
+# ============================================
+# PBS User and Token Configuration
+# ============================================
+# Backup user for PVE nodes to authenticate
+pbs_backup_user: "pve-backup@pam"
+pbs_backup_token_name: "pve-token"
+
+# ============================================
+# Retention Policies
+# ============================================
+# Default retention policy (applied to all datastores)
+pbs_retention:
+  keep_daily: 7
+  keep_weekly: 4
+  keep_monthly: 6
+  keep_yearly: 1
+
+# ============================================
+# Maintenance Schedules
+# ============================================
+# Prune schedule (remove old backups per retention)
+pbs_prune_schedule: "daily"
+
+# Garbage collection schedule
+pbs_gc_schedule: "Sun 05:15"
+
+# Verification schedules
+pbs_verify_weekly_schedule: "Sat 04:30"
+pbs_verify_daily_schedule: "daily"
+
+# ZFS scrub schedule (if using ZFS)
+pbs_zfs_scrub_schedule: "Sun 02:30"
+
+# ============================================
+# Network Configuration
+# ============================================
+# PBS web interface port
+pbs_web_port: 8007
+
+# PBS datastore port (for backups)
+pbs_datastore_port: 8007
+
+# ============================================
+# Email Notifications
+# ============================================
+pbs_email_notifications: false
+pbs_email_recipient: ""
+pbs_smtp_server: ""
+
+# ============================================
+# Encryption
+# ============================================
+# Enable encryption for backups (recommended)
+pbs_encryption_enabled: true
+
+# ============================================
+# Phase Control
+# ============================================
+# Control which tasks run
+pbs_configure_datastores: true
+pbs_configure_users: true
+pbs_configure_retention: true
+pbs_configure_maintenance: true
+pbs_install_cron_jobs: true

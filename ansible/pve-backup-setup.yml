@@ -1,0 +1,78 @@
+---
+# PVE Backup Setup Playbook
+# Configures Proxmox VE nodes to backup to PBS
+#
+# Usage:
+#   ansible-playbook -i inventory-prod.ini pve-backup-setup.yml --limit socrates
+#
+# Prerequisites:
+#   - PBS must be configured and running (run pbs-setup.yml first)
+#   - pbs_token_secret must be set in vault.yml
+#   - Network connectivity between PVE node and PBS
+
+- name: Configure PVE Backup to PBS
+  hosts: proxmox
+  become: yes
+
+  pre_tasks:
+    - name: Verify PBS token secret is configured
+      assert:
+        that:
+          - pbs_token_secret is defined
+          - pbs_token_secret | length > 0
+        fail_msg: |
+          PBS token secret not configured!
+          Set pbs_token_secret in ansible/group_vars/vault.yml
+
+          Get the secret from 1Password: PBS API Token - plato
+      tags: [always]
+
+    - name: Display backup configuration target
+      debug:
+        msg: |
+          ╔══════════════════════════════════════════════════════════════╗
+          ║   Configuring PVE Backup to PBS                             ║
+          ╚══════════════════════════════════════════════════════════════╝
+
+          PVE Host: {{ inventory_hostname }} ({{ ansible_host }})
+          PBS Server: {{ pbs_server | default('10.203.3.97') }}
+
+          This playbook will:
+          1. Verify connectivity to PBS
+          2. Add PBS storage configurations
+          3. Create backup jobs (if defined)
+
+          Storage to add: {{ pbs_storage_configs | map(attribute='name') | join(', ') | default('default') }}
+          {% if pbs_backup_jobs is defined %}
+          Backup jobs: {{ pbs_backup_jobs | map(attribute='name') | join(', ') }}
+          {% endif %}
+      tags: [always]
+
+  roles:
+    - role: proxmox-backup-client
+      tags: [pbs-client, backup]
+
+  post_tasks:
+    - name: Display next steps
+      debug:
+        msg: |
+          ╔══════════════════════════════════════════════════════════════╗
+          ║   PVE Backup Configuration Complete!                        ║
+          ╚══════════════════════════════════════════════════════════════╝
+
+          Host: {{ inventory_hostname }}
+          PBS Server: {{ pbs_server | default('10.203.3.97') }}
+
+          == Verify Backups ==
+          1. Check storage in PVE web UI: Datacenter > Storage
+          2. Run a test backup:
+             vzdump <vmid> --storage pbs-ai --mode snapshot
+
+          3. View backup in PBS web UI: https://10.203.3.97:8007
+
+          == Backup Schedule ==
+          Backups run automatically per configured schedule.
+          Check backup jobs: Datacenter > Backup
+
+          See /root/pbs-client-info.txt for configuration details.
+      tags: [always]

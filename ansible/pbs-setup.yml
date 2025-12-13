@@ -1,0 +1,86 @@
+---
+# PBS Setup Playbook
+# Configures Proxmox Backup Server for centralized backups
+#
+# Usage:
+#   ansible-playbook -i inventory-prod.ini pbs-setup.yml
+#
+# Prerequisites:
+#   - PBS must be installed and accessible
+#   - Datastores must exist (created during PBS installation)
+#   - ansible user must have sudo access
+
+- name: Configure Proxmox Backup Server
+  hosts: pbs
+  become: yes
+
+  pre_tasks:
+    - name: Display PBS configuration target
+      debug:
+        msg: |
+          ╔══════════════════════════════════════════════════════════════╗
+          ║   Configuring Proxmox Backup Server                         ║
+          ╚══════════════════════════════════════════════════════════════╝
+
+          Target: {{ inventory_hostname }} ({{ ansible_host }})
+
+          This playbook will:
+          1. Configure base system (packages, SSH, security)
+          2. Create backup user and API token
+          3. Set up datastore ACLs
+          4. Configure retention policies
+          5. Set up maintenance jobs (prune, verify, GC)
+
+          Datastores to configure: {{ pbs_datastores | map(attribute='name') | join(', ') }}
+      tags: [always]
+
+  roles:
+    - role: proxmox-backup-server
+      tags: [pbs]
+
+  post_tasks:
+    - name: Display next steps
+      debug:
+        msg: |
+          ╔══════════════════════════════════════════════════════════════╗
+          ║   PBS Configuration Complete - Next Steps                   ║
+          ╚══════════════════════════════════════════════════════════════╝
+
+          1. SAVE TOKEN TO 1PASSWORD
+             If a new token was created, the secret is in the output above.
+             Store it as: PBS API Token - {{ inventory_hostname }}
+
+          2. RUN PVE STORAGE SETUP ON EACH PROXMOX VE NODE
+             On each PVE node (e.g., socrates), run:
+
+             export PBS_SECRET='<token-secret-from-1password>'
+             export PBS_HOST='{{ ansible_host }}'
+
+             # Then run the storage setup script or manually:
+             pvesh create /storage \
+               --storage pbs-infra \
+               --type pbs \
+               --server {{ ansible_host }} \
+               --datastore infra \
+               --username '{{ pbs_backup_user }}!{{ pbs_backup_token_name }}' \
+               --password "$PBS_SECRET" \
+               --fingerprint "<fingerprint-from-/root/pbs-fingerprint.txt>" \
+               --content backup
+
+          3. CREATE BACKUP JOBS ON PVE NODES
+             Example for Socrates AI containers:
+
+             pvesh create /cluster/backup \
+               --storage pbs-ai \
+               --vmid 200,201,202 \
+               --schedule "03:15" \
+               --mode snapshot \
+               --compress zstd \
+               --enabled 1
+
+          4. TEST RESTORE PROCEDURE
+             Backups aren't backups until you've tested restore!
+
+          See /root/pbs-info.txt on PBS host for full details.
+          See docs/pbs-setup.md for complete documentation.
+      tags: [always]
