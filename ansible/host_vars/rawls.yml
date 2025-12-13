@@ -73,9 +73,10 @@ dns_domain: "hq.doofus.co"
 netbox_deploy: true
 
 # LXC Container settings for Netbox
-netbox_vmid: 201
+# Note: 201 is occupied by legacy dns01 container
+netbox_vmid: 202
 netbox_hostname: "netbox"
-netbox_container_ip: "10.203.3.201"
+netbox_container_ip: "10.203.3.202"
 netbox_container_gateway: "10.203.3.1"
 netbox_container_cidr: "24"
 

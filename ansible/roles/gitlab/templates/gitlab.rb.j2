@@ -36,6 +36,13 @@ prometheus_monitoring['enable'] = {{ gitlab_prometheus_enabled | lower }}
 grafana['enable'] = {{ gitlab_grafana_enabled | lower }}
 
 # ============================================
+# LXC Container Compatibility
+# ============================================
+# LXC containers cannot modify kernel sysctl parameters (kernel.shmall, etc.)
+# Disable kernel parameter modification to allow reconfigure to succeed
+package['modify_kernel_parameters'] = false
+
+# ============================================
 # Backup Settings
 # ============================================
 gitlab_rails['backup_keep_time'] = {{ gitlab_backup_keep_time }}

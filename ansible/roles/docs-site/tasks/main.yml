@@ -27,7 +27,7 @@
           --cores {{ docs_cores }} \
           --memory {{ docs_memory }} \
           --swap {{ docs_swap }} \
-          --rootfs local-lvm:{{ docs_disk }} \
+          --rootfs local-lvm:{{ docs_disk | regex_replace('[^0-9]', '') }} \
           --net0 name=eth0,bridge=vmbr0,ip={{ docs_container_ip }}/{{ docs_container_cidr }},gw={{ docs_container_gateway }} \
           --features nesting=1 \
           --unprivileged 1 \

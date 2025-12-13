@@ -28,7 +28,9 @@ gitlab_lxc_storage: "local-lvm"
 gitlab_lxc_bridge: "vmbr0"
 
 # Container options
-gitlab_lxc_unprivileged: true
+# IMPORTANT: GitLab requires privileged container to set kernel sysctl values
+# (kernel.shmall, kernel.shmmax for PostgreSQL)
+gitlab_lxc_unprivileged: false
 gitlab_lxc_onboot: true
 gitlab_lxc_features:
   - nesting=1
