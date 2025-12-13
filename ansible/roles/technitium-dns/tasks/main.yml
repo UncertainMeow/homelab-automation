@@ -1,0 +1,211 @@
+---
+# Technitium DNS Server Deployment
+# Creates an LXC container on Proxmox, then deploys Technitium DNS via Docker inside it
+
+# ============================================
+# Phase 1: Create LXC Container
+# ============================================
+
+- name: Check if DNS container exists
+  command: "pct status {{ dns_vmid }}"
+  register: dns_ct_exists
+  changed_when: false
+  failed_when: false
+  tags: [dns, lxc]
+
+- name: Create DNS LXC container
+  command: >
+    pct create {{ dns_vmid }} {{ dns_lxc_template }}
+    --hostname {{ dns_hostname }}
+    --cores {{ dns_cores }}
+    --memory {{ dns_memory }}
+    --swap {{ dns_swap }}
+    --rootfs {{ dns_lxc_storage }}:{{ dns_disk | regex_replace('[^0-9]', '') }}
+    --net0 name=eth0,bridge={{ dns_lxc_bridge }},ip={{ dns_container_ip }}/{{ dns_container_cidr }},gw={{ dns_container_gateway }}
+    --nameserver {{ dns_upstream_servers | first }}
+    --features nesting=1
+    --unprivileged 1
+    --onboot 1
+    --description "Technitium DNS Server - Managed by Ansible"
+  when: dns_ct_exists.rc != 0
+  tags: [dns, lxc]
+
+- name: Start DNS container
+  command: "pct start {{ dns_vmid }}"
+  register: dns_ct_start
+  failed_when: false
+  changed_when: dns_ct_start.rc == 0
+  tags: [dns, lxc]
+
+- name: Wait for DNS container to be ready
+  pause:
+    seconds: 15
+  when: dns_ct_exists.rc != 0 or dns_ct_start.changed
+  tags: [dns, lxc]
+
+# ============================================
+# Phase 2: Configure Container
+# ============================================
+
+- name: Update package lists in container
+  command: "pct exec {{ dns_vmid }} -- apt-get update"
+  changed_when: false
+  tags: [dns, packages]
+
+- name: Install base packages in container
+  command: "pct exec {{ dns_vmid }} -- apt-get install -y curl ca-certificates gnupg sudo"
+  changed_when: false
+  tags: [dns, packages]
+
+- name: Add SSH authorized keys
+  command: >
+    pct exec {{ dns_vmid }} -- bash -c "
+    mkdir -p /root/.ssh &&
+    chmod 700 /root/.ssh &&
+    echo '{{ item }}' >> /root/.ssh/authorized_keys &&
+    chmod 600 /root/.ssh/authorized_keys
+    "
+  loop: "{{ dns_ssh_keys }}"
+  when: dns_ssh_keys | length > 0
+  changed_when: false
+  tags: [dns, ssh]
+
+# ============================================
+# Phase 3: Install Docker in Container
+# ============================================
+
+- name: Install Docker in DNS container
+  command: >
+    pct exec {{ dns_vmid }} -- bash -c "
+    curl -fsSL https://get.docker.com | sh
+    "
+  changed_when: false
+  tags: [dns, docker]
+
+- name: Install docker-compose in container
+  command: >
+    pct exec {{ dns_vmid }} -- apt-get install -y docker-compose
+  changed_when: false
+  tags: [dns, docker]
+
+# ============================================
+# Phase 4: Deploy Technitium DNS
+# ============================================
+
+- name: Create DNS directories in container
+  command: >
+    pct exec {{ dns_vmid }} -- mkdir -p /opt/technitium-dns/data
+  changed_when: false
+  tags: [dns, deploy]
+
+- name: Create docker-compose.yml in container
+  command: >
+    pct exec {{ dns_vmid }} -- bash -c 'cat > /opt/technitium-dns/docker-compose.yml << EOF
+    version: "3.8"
+
+    services:
+      technitium-dns:
+        image: {{ dns_image }}
+        container_name: technitium-dns
+        hostname: technitium-dns
+        restart: unless-stopped
+        ports:
+          - "{{ dns_web_port }}:5380"
+          - "{{ dns_port }}:53/udp"
+          - "{{ dns_port }}:53/tcp"
+        environment:
+          - DNS_SERVER_DOMAIN={{ dns_domain }}
+          - DNS_SERVER_ADMIN_PASSWORD={{ dns_admin_password }}
+        volumes:
+          - {{ dns_data_dir }}:/etc/dns
+        healthcheck:
+          test: ["CMD", "dig", "@127.0.0.1", "localhost"]
+          interval: 30s
+          timeout: 10s
+          retries: 3
+          start_period: 30s
+    EOF'
+  changed_when: false
+  tags: [dns, deploy]
+
+- name: Pull DNS image in container
+  command: "pct exec {{ dns_vmid }} -- docker pull {{ dns_image }}"
+  changed_when: false
+  tags: [dns, docker]
+
+- name: Start Technitium DNS stack
+  command: "pct exec {{ dns_vmid }} -- docker-compose -f /opt/technitium-dns/docker-compose.yml up -d"
+  changed_when: false
+  tags: [dns, deploy]
+
+# ============================================
+# Phase 5: Verify and Configure
+# ============================================
+
+- name: Wait for DNS to be ready
+  command: "pct exec {{ dns_vmid }} -- curl -s -o /dev/null -w '%{http_code}' http://localhost:{{ dns_web_port }}/"
+  register: dns_health
+  until: dns_health.stdout == "200" or dns_health.stdout == "302"
+  retries: 30
+  delay: 5
+  changed_when: false
+  tags: [dns, verify]
+
+# ============================================
+# Phase 6: Create DNS Zone via API
+# ============================================
+
+- name: Login to Technitium API
+  command: >
+    pct exec {{ dns_vmid }} -- curl -s
+    "http://localhost:{{ dns_web_port }}/api/user/login?user=admin&pass={{ dns_admin_password }}&includeInfo=false"
+  register: dns_login
+  changed_when: false
+  tags: [dns, zone]
+
+- name: Extract API token
+  set_fact:
+    dns_api_token: "{{ (dns_login.stdout | from_json).token }}"
+  when: dns_login.stdout is defined and (dns_login.stdout | from_json).status == 'ok'
+  tags: [dns, zone]
+
+- name: Create primary zone for lab.local
+  command: >
+    pct exec {{ dns_vmid }} -- curl -s
+    "http://localhost:{{ dns_web_port }}/api/zones/create?token={{ dns_api_token }}&zone={{ dns_domain }}&type=Primary"
+  register: zone_create
+  when: dns_api_token is defined
+  changed_when: false
+  failed_when: false
+  tags: [dns, zone]
+
+- name: Display zone creation result
+  debug:
+    msg: "Zone creation result: {{ zone_create.stdout | default('skipped') }}"
+  when: zone_create is defined and zone_create.stdout is defined
+  tags: [dns, zone]
+
+- name: Display DNS server info
+  debug:
+    msg: |
+      ╔════════════════════════════════════════════════════════════════╗
+      ║   Technitium DNS Server Deployed                               ║
+      ╚════════════════════════════════════════════════════════════════╝
+
+      LXC Container:
+        VMID:     {{ dns_vmid }}
+        Hostname: {{ dns_hostname }}
+        IP:       {{ dns_container_ip }}
+
+      DNS Service:
+        Web UI:   http://{{ dns_container_ip }}:{{ dns_web_port }}
+        DNS:      {{ dns_container_ip }}:{{ dns_port }} (UDP/TCP)
+        Domain:   {{ dns_domain }}
+
+      Credentials: admin / <dns_admin_password>
+
+      Access container: pct enter {{ dns_vmid }}
+
+      Configure clients to use DNS: {{ dns_container_ip }}
+
+  tags: [dns, info]

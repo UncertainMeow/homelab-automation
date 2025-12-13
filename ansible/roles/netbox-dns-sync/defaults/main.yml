@@ -1,0 +1,32 @@
+---
+# Netbox-DNS Sync - Default Variables
+# Runs inside the Netbox LXC container
+
+# Which container to deploy sync to (use Netbox container)
+sync_vmid: "{{ netbox_vmid | default(201) }}"
+
+# Sync script location inside container
+sync_script_dir: "/opt/netbox-dns-sync"
+sync_script_path: "{{ sync_script_dir }}/sync-netbox-to-dns.py"
+
+# Netbox configuration (localhost since running in same container)
+sync_netbox_url: "http://localhost:8080"
+sync_netbox_token: "{{ vault_netbox_api_token | default('') }}"
+
+# Technitium DNS configuration (connect to DNS container by IP)
+sync_dns_ip: "{{ dns_container_ip | default('10.203.3.203') }}"
+sync_dns_url: "http://{{ sync_dns_ip }}:5380"
+sync_dns_username: "admin"
+sync_dns_password: "{{ vault_dns_admin_password | default('changeme') }}"
+
+# DNS zone to manage
+sync_dns_zone: "hq.doofus.co"
+
+# Whether to enable systemd timer for automatic sync
+sync_enable_timer: true
+
+# Whether to run initial sync on deployment
+sync_run_initial: false  # Requires API token to be set first
+
+# Log file location
+sync_log_file: "/var/log/netbox-dns-sync.log"

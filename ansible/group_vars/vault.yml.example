@@ -21,6 +21,22 @@ tailscale_auth_key: "tskey-auth-XXXXXXXXXXXXX-YYYYYYYYYYYYYY"
 # smtp_password: "your-app-password"
 
 # ============================================
+# DNS Server (Technitium)
+# ============================================
+vault_dns_admin_password: "your-secure-dns-admin-password"
+
+# ============================================
+# Netbox IPAM
+# ============================================
+vault_netbox_db_password: "your-secure-postgres-password"
+vault_netbox_redis_password: "your-secure-redis-password"
+vault_netbox_superuser_password: "your-secure-admin-password"
+vault_netbox_secret_key: "your-long-random-django-secret-key-at-least-50-chars"
+
+# Create this after first Netbox login (Admin → API Tokens)
+vault_netbox_api_token: ""
+
+# ============================================
 # Other Secrets
 # ============================================
 # Add other sensitive data here as needed

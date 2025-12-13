@@ -1,0 +1,59 @@
+---
+# Netbox IPAM - Default Variables
+# Deploys Netbox in an LXC container on Proxmox
+
+# LXC Container Configuration
+netbox_vmid: 201
+netbox_hostname: "netbox"
+netbox_container_ip: "10.203.3.201"
+netbox_container_gateway: "10.203.3.1"
+netbox_container_cidr: "24"
+
+# Container resources (Netbox needs decent resources)
+netbox_cores: 4
+netbox_memory: 4096      # 4GB RAM
+netbox_swap: 2048        # 2GB swap
+netbox_disk: "20G"       # 20GB storage
+
+# LXC creation settings
+netbox_lxc_template: "local:vztmpl/debian-12-standard_12.7-1_amd64.tar.zst"
+netbox_lxc_storage: "local-lvm"
+netbox_lxc_bridge: "vmbr0"
+
+# Network port
+netbox_web_port: 8080
+
+# Docker image version
+netbox_version: "v4.1-3.0.2"
+netbox_image: "netboxcommunity/netbox:{{ netbox_version }}"
+
+# Data directory inside container
+netbox_data_dir: "/opt/netbox"
+
+# Database settings
+netbox_db_name: "netbox"
+netbox_db_user: "netbox"
+netbox_db_password: "{{ vault_netbox_db_password | default('netbox_db_pass') }}"
+
+# Redis settings
+netbox_redis_password: "{{ vault_netbox_redis_password | default('redis_pass') }}"
+
+# Netbox superuser credentials
+netbox_superuser_name: "admin"
+netbox_superuser_email: "admin@lab.local"
+netbox_superuser_password: "{{ vault_netbox_superuser_password | default('changeme') }}"
+
+# Secret key for Django
+netbox_secret_key: "{{ vault_netbox_secret_key | default('change-me-to-a-very-long-random-string') }}"
+
+# Allowed hosts (for Django)
+netbox_allowed_hosts: "*"
+
+# Time zone
+netbox_timezone: "America/Los_Angeles"
+
+# SSH keys for container access
+netbox_ssh_keys: "{{ ssh_public_keys | default([]) }}"
+
+# DNS server for container
+netbox_dns_server: "1.1.1.1"

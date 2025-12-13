@@ -1,0 +1,104 @@
+---
+# Rawls - Infrastructure Node
+# GitLab, Technitium DNS, Ansible, Terraform, Authentik
+
+# ============================================
+# Host Description
+# ============================================
+host_description: "Rawls - Infrastructure Node (GitLab, DNS, Automation)"
+
+# ============================================
+# GitLab Configuration (LXC + Omnibus)
+# ============================================
+gitlab_deploy: true
+
+# LXC Container settings
+gitlab_vmid: 204
+gitlab_hostname: "gitlab"
+gitlab_container_ip: "10.203.3.204"
+gitlab_container_gateway: "10.203.3.1"
+gitlab_container_cidr: "24"
+
+# Container resources (GitLab needs at least 4GB, 8GB recommended)
+gitlab_cores: 4
+gitlab_memory: 8192      # 8GB RAM
+gitlab_swap: 4096        # 4GB swap
+gitlab_disk: "50G"       # Storage for GitLab + repos
+
+# GitLab access URL
+gitlab_external_url: "http://10.203.3.204"
+
+# Timezone
+gitlab_timezone: "America/Los_Angeles"
+
+# ============================================
+# Phase Control
+# ============================================
+# Rawls is an infrastructure node - different from GPU workstations
+enable_pci_passthrough: false
+enable_nvidia_setup: false
+create_tailscale_router: false
+create_vm_templates: false
+download_lxc_templates: true   # Need Debian 12 template for GitLab
+deploy_dotfiles: true
+generate_snapshot: false
+
+# User management
+setup_users: true
+
+# ============================================
+# DNS Server (Technitium) Configuration
+# ============================================
+technitium_deploy: true
+
+# LXC Container settings for DNS
+dns_vmid: 203
+dns_hostname: "dns"
+dns_container_ip: "10.203.3.203"
+dns_container_gateway: "10.203.3.1"
+dns_container_cidr: "24"
+
+# Container resources
+dns_cores: 2
+dns_memory: 1024
+dns_swap: 512
+dns_disk: "8G"
+
+# DNS domain
+dns_domain: "hq.doofus.co"
+
+# ============================================
+# Netbox IPAM Configuration
+# ============================================
+netbox_deploy: true
+
+# LXC Container settings for Netbox
+netbox_vmid: 201
+netbox_hostname: "netbox"
+netbox_container_ip: "10.203.3.201"
+netbox_container_gateway: "10.203.3.1"
+netbox_container_cidr: "24"
+
+# Container resources (Netbox needs decent resources)
+netbox_cores: 4
+netbox_memory: 4096
+netbox_swap: 2048
+netbox_disk: "20G"
+
+# Netbox web port
+netbox_web_port: 8080
+
+# ============================================
+# Netbox-DNS Sync Configuration
+# ============================================
+netbox_dns_sync_deploy: true
+
+# Sync runs inside the Netbox container
+sync_dns_zone: "hq.doofus.co"
+sync_enable_timer: true
+sync_run_initial: false  # Enable after API token is created
+
+# ============================================
+# Future Services (to be enabled)
+# ============================================
+# authentik_deploy: false   # SSO/Identity

@@ -63,6 +63,19 @@
       tags: [snapshot, docs, phase7]
       when: generate_snapshot | default(false)
 
+    # Phase 8: Infrastructure Services (LXC containers)
+    - role: technitium-dns
+      tags: [dns, technitium, phase8, infra-services]
+      when: technitium_deploy | default(false)
+
+    - role: netbox
+      tags: [netbox, ipam, phase8, infra-services]
+      when: netbox_deploy | default(false)
+
+    - role: netbox-dns-sync
+      tags: [netbox-dns-sync, sync, phase8, infra-services]
+      when: netbox_dns_sync_deploy | default(false)
+
   post_tasks:
     - name: Display setup completion summary
       debug:

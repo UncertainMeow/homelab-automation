@@ -1,0 +1,285 @@
+---
+# Netbox IPAM Deployment
+# Creates an LXC container on Proxmox, then deploys Netbox via Docker inside it
+
+# ============================================
+# Phase 1: Create LXC Container
+# ============================================
+
+- name: Check if Netbox container exists
+  command: "pct status {{ netbox_vmid }}"
+  register: netbox_ct_exists
+  changed_when: false
+  failed_when: false
+  tags: [netbox, lxc]
+
+- name: Create Netbox LXC container
+  command: >
+    pct create {{ netbox_vmid }} {{ netbox_lxc_template }}
+    --hostname {{ netbox_hostname }}
+    --cores {{ netbox_cores }}
+    --memory {{ netbox_memory }}
+    --swap {{ netbox_swap }}
+    --rootfs {{ netbox_lxc_storage }}:{{ netbox_disk | regex_replace('[^0-9]', '') }}
+    --net0 name=eth0,bridge={{ netbox_lxc_bridge }},ip={{ netbox_container_ip }}/{{ netbox_container_cidr }},gw={{ netbox_container_gateway }}
+    --nameserver {{ netbox_dns_server }}
+    --features nesting=1
+    --unprivileged 1
+    --onboot 1
+    --description "Netbox IPAM - Managed by Ansible"
+  when: netbox_ct_exists.rc != 0
+  tags: [netbox, lxc]
+
+- name: Start Netbox container
+  command: "pct start {{ netbox_vmid }}"
+  register: netbox_ct_start
+  failed_when: false
+  changed_when: netbox_ct_start.rc == 0
+  tags: [netbox, lxc]
+
+- name: Wait for Netbox container to be ready
+  pause:
+    seconds: 15
+  when: netbox_ct_exists.rc != 0 or netbox_ct_start.changed
+  tags: [netbox, lxc]
+
+# ============================================
+# Phase 2: Configure Container
+# ============================================
+
+- name: Update package lists in container
+  command: "pct exec {{ netbox_vmid }} -- apt-get update"
+  changed_when: false
+  tags: [netbox, packages]
+
+- name: Install base packages in container
+  command: "pct exec {{ netbox_vmid }} -- apt-get install -y curl ca-certificates gnupg sudo python3-pip"
+  changed_when: false
+  tags: [netbox, packages]
+
+- name: Add SSH authorized keys
+  command: >
+    pct exec {{ netbox_vmid }} -- bash -c "
+    mkdir -p /root/.ssh &&
+    chmod 700 /root/.ssh &&
+    echo '{{ item }}' >> /root/.ssh/authorized_keys &&
+    chmod 600 /root/.ssh/authorized_keys
+    "
+  loop: "{{ netbox_ssh_keys }}"
+  when: netbox_ssh_keys | length > 0
+  changed_when: false
+  tags: [netbox, ssh]
+
+# ============================================
+# Phase 3: Install Docker in Container
+# ============================================
+
+- name: Install Docker in Netbox container
+  command: >
+    pct exec {{ netbox_vmid }} -- bash -c "
+    curl -fsSL https://get.docker.com | sh
+    "
+  changed_when: false
+  tags: [netbox, docker]
+
+- name: Install docker-compose in container
+  command: >
+    pct exec {{ netbox_vmid }} -- apt-get install -y docker-compose
+  changed_when: false
+  tags: [netbox, docker]
+
+# ============================================
+# Phase 4: Deploy Netbox
+# ============================================
+
+- name: Create Netbox directories in container
+  command: >
+    pct exec {{ netbox_vmid }} -- mkdir -p {{ netbox_data_dir }}/postgres-data {{ netbox_data_dir }}/redis-data {{ netbox_data_dir }}/netbox-media {{ netbox_data_dir }}/netbox-reports {{ netbox_data_dir }}/netbox-scripts
+  changed_when: false
+  tags: [netbox, deploy]
+
+- name: Create docker-compose.yml in container
+  command: >
+    pct exec {{ netbox_vmid }} -- bash -c 'cat > {{ netbox_data_dir }}/docker-compose.yml << "EOFCOMPOSE"
+    version: "3.8"
+
+    services:
+      netbox:
+        image: {{ netbox_image }}
+        container_name: netbox
+        restart: unless-stopped
+        depends_on:
+          - postgres
+          - redis
+          - redis-cache
+        ports:
+          - "{{ netbox_web_port }}:8080"
+        environment:
+          - CORS_ORIGIN_ALLOW_ALL=True
+          - DB_HOST=postgres
+          - DB_NAME={{ netbox_db_name }}
+          - DB_PASSWORD={{ netbox_db_password }}
+          - DB_USER={{ netbox_db_user }}
+          - REDIS_CACHE_DATABASE=1
+          - REDIS_CACHE_HOST=redis-cache
+          - REDIS_CACHE_PASSWORD={{ netbox_redis_password }}
+          - REDIS_DATABASE=0
+          - REDIS_HOST=redis
+          - REDIS_PASSWORD={{ netbox_redis_password }}
+          - SECRET_KEY={{ netbox_secret_key }}
+          - SUPERUSER_EMAIL={{ netbox_superuser_email }}
+          - SUPERUSER_NAME={{ netbox_superuser_name }}
+          - SUPERUSER_PASSWORD={{ netbox_superuser_password }}
+          - ALLOWED_HOSTS={{ netbox_allowed_hosts }}
+          - TIME_ZONE={{ netbox_timezone }}
+        volumes:
+          - {{ netbox_data_dir }}/netbox-media:/opt/netbox/netbox/media
+          - {{ netbox_data_dir }}/netbox-reports:/opt/netbox/netbox/reports
+          - {{ netbox_data_dir }}/netbox-scripts:/opt/netbox/netbox/scripts
+        healthcheck:
+          test: ["CMD", "curl", "-f", "http://localhost:8080/api/"]
+          interval: 30s
+          timeout: 10s
+          retries: 5
+          start_period: 120s
+
+      netbox-worker:
+        image: {{ netbox_image }}
+        container_name: netbox-worker
+        restart: unless-stopped
+        depends_on:
+          - netbox
+        command: /opt/netbox/venv/bin/python /opt/netbox/netbox/manage.py rqworker
+        environment:
+          - DB_HOST=postgres
+          - DB_NAME={{ netbox_db_name }}
+          - DB_PASSWORD={{ netbox_db_password }}
+          - DB_USER={{ netbox_db_user }}
+          - REDIS_CACHE_DATABASE=1
+          - REDIS_CACHE_HOST=redis-cache
+          - REDIS_CACHE_PASSWORD={{ netbox_redis_password }}
+          - REDIS_DATABASE=0
+          - REDIS_HOST=redis
+          - REDIS_PASSWORD={{ netbox_redis_password }}
+          - SECRET_KEY={{ netbox_secret_key }}
+        volumes:
+          - {{ netbox_data_dir }}/netbox-media:/opt/netbox/netbox/media
+          - {{ netbox_data_dir }}/netbox-reports:/opt/netbox/netbox/reports
+          - {{ netbox_data_dir }}/netbox-scripts:/opt/netbox/netbox/scripts
+
+      netbox-housekeeping:
+        image: {{ netbox_image }}
+        container_name: netbox-housekeeping
+        restart: unless-stopped
+        depends_on:
+          - netbox
+        command: /opt/netbox/housekeeping.sh
+        environment:
+          - DB_HOST=postgres
+          - DB_NAME={{ netbox_db_name }}
+          - DB_PASSWORD={{ netbox_db_password }}
+          - DB_USER={{ netbox_db_user }}
+          - REDIS_CACHE_DATABASE=1
+          - REDIS_CACHE_HOST=redis-cache
+          - REDIS_CACHE_PASSWORD={{ netbox_redis_password }}
+          - REDIS_DATABASE=0
+          - REDIS_HOST=redis
+          - REDIS_PASSWORD={{ netbox_redis_password }}
+          - SECRET_KEY={{ netbox_secret_key }}
+        volumes:
+          - {{ netbox_data_dir }}/netbox-media:/opt/netbox/netbox/media
+          - {{ netbox_data_dir }}/netbox-reports:/opt/netbox/netbox/reports
+          - {{ netbox_data_dir }}/netbox-scripts:/opt/netbox/netbox/scripts
+
+      postgres:
+        image: postgres:16-alpine
+        container_name: netbox-postgres
+        restart: unless-stopped
+        environment:
+          - POSTGRES_DB={{ netbox_db_name }}
+          - POSTGRES_USER={{ netbox_db_user }}
+          - POSTGRES_PASSWORD={{ netbox_db_password }}
+        volumes:
+          - {{ netbox_data_dir }}/postgres-data:/var/lib/postgresql/data
+        healthcheck:
+          test: ["CMD-SHELL", "pg_isready -U {{ netbox_db_user }} -d {{ netbox_db_name }}"]
+          interval: 10s
+          timeout: 5s
+          retries: 5
+
+      redis:
+        image: redis:7-alpine
+        container_name: netbox-redis
+        restart: unless-stopped
+        command: redis-server --requirepass {{ netbox_redis_password }}
+        volumes:
+          - {{ netbox_data_dir }}/redis-data:/data
+        healthcheck:
+          test: ["CMD", "redis-cli", "-a", "{{ netbox_redis_password }}", "ping"]
+          interval: 10s
+          timeout: 5s
+          retries: 5
+
+      redis-cache:
+        image: redis:7-alpine
+        container_name: netbox-redis-cache
+        restart: unless-stopped
+        command: redis-server --requirepass {{ netbox_redis_password }}
+        healthcheck:
+          test: ["CMD", "redis-cli", "-a", "{{ netbox_redis_password }}", "ping"]
+          interval: 10s
+          timeout: 5s
+          retries: 5
+    EOFCOMPOSE'
+  changed_when: false
+  tags: [netbox, deploy]
+
+- name: Pull Netbox images in container
+  command: "pct exec {{ netbox_vmid }} -- docker-compose -f {{ netbox_data_dir }}/docker-compose.yml pull"
+  changed_when: false
+  tags: [netbox, docker]
+
+- name: Start Netbox stack
+  command: "pct exec {{ netbox_vmid }} -- docker-compose -f {{ netbox_data_dir }}/docker-compose.yml up -d"
+  changed_when: false
+  tags: [netbox, deploy]
+
+# ============================================
+# Phase 5: Verify
+# ============================================
+
+- name: Wait for Netbox to be ready (may take 2-3 minutes)
+  command: "pct exec {{ netbox_vmid }} -- curl -s -o /dev/null -w '%{http_code}' http://localhost:{{ netbox_web_port }}/"
+  register: netbox_health
+  until: netbox_health.stdout == "200" or netbox_health.stdout == "302"
+  retries: 60
+  delay: 10
+  changed_when: false
+  tags: [netbox, verify]
+
+- name: Display Netbox info
+  debug:
+    msg: |
+      ╔════════════════════════════════════════════════════════════════╗
+      ║   Netbox IPAM Deployed                                         ║
+      ╚════════════════════════════════════════════════════════════════╝
+
+      LXC Container:
+        VMID:     {{ netbox_vmid }}
+        Hostname: {{ netbox_hostname }}
+        IP:       {{ netbox_container_ip }}
+
+      Netbox Service:
+        Web UI:   http://{{ netbox_container_ip }}:{{ netbox_web_port }}
+        API:      http://{{ netbox_container_ip }}:{{ netbox_web_port }}/api/
+
+      Credentials: {{ netbox_superuser_name }} / <netbox_superuser_password>
+
+      Access container: pct enter {{ netbox_vmid }}
+
+      Next steps:
+        1. Login to Netbox
+        2. Create API token at /admin/users/token/
+        3. Run sync role with the token
+
+  tags: [netbox, info]

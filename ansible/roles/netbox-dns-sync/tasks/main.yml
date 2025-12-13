@@ -1,0 +1,176 @@
+---
+# Netbox to DNS Sync Deployment
+# Deploys sync script inside the Netbox LXC container
+# Prerequisites: Netbox and DNS containers must already exist
+
+# ============================================
+# Phase 1: Verify Prerequisites
+# ============================================
+
+- name: Verify Netbox container exists
+  command: "pct status {{ sync_vmid }}"
+  register: netbox_ct_check
+  changed_when: false
+  failed_when: netbox_ct_check.rc != 0
+  tags: [sync, verify]
+
+- name: Verify DNS container exists
+  command: "pct status {{ dns_vmid | default(203) }}"
+  register: dns_ct_check
+  changed_when: false
+  failed_when: dns_ct_check.rc != 0
+  tags: [sync, verify]
+
+# ============================================
+# Phase 2: Install Python Dependencies
+# ============================================
+
+- name: Install Python packages for sync script
+  command: >
+    pct exec {{ sync_vmid }} -- apt-get install -y python3 python3-pip python3-requests
+  changed_when: false
+  tags: [sync, packages]
+
+# ============================================
+# Phase 3: Deploy Sync Script
+# ============================================
+
+- name: Create sync script directory
+  command: "pct exec {{ sync_vmid }} -- mkdir -p {{ sync_script_dir }}"
+  changed_when: false
+  tags: [sync, deploy]
+
+- name: Generate sync script locally
+  template:
+    src: sync-netbox-to-dns.py.j2
+    dest: "/tmp/sync-netbox-to-dns-{{ sync_vmid }}.py"
+    mode: '0755'
+  delegate_to: localhost
+  become: false
+  tags: [sync, deploy]
+
+- name: Push sync script to container
+  command: "pct push {{ sync_vmid }} /tmp/sync-netbox-to-dns-{{ sync_vmid }}.py {{ sync_script_path }}"
+  changed_when: false
+  tags: [sync, deploy]
+
+- name: Make sync script executable
+  command: "pct exec {{ sync_vmid }} -- chmod +x {{ sync_script_path }}"
+  changed_when: false
+  tags: [sync, deploy]
+
+- name: Clean up local temp file
+  file:
+    path: "/tmp/sync-netbox-to-dns-{{ sync_vmid }}.py"
+    state: absent
+  delegate_to: localhost
+  become: false
+  tags: [sync, deploy]
+
+# ============================================
+# Phase 4: Deploy Systemd Service
+# ============================================
+
+- name: Generate systemd service file locally
+  template:
+    src: netbox-dns-sync.service.j2
+    dest: "/tmp/netbox-dns-sync-{{ sync_vmid }}.service"
+  delegate_to: localhost
+  become: false
+  tags: [sync, systemd]
+
+- name: Push systemd service to container
+  command: "pct push {{ sync_vmid }} /tmp/netbox-dns-sync-{{ sync_vmid }}.service /etc/systemd/system/netbox-dns-sync.service"
+  changed_when: false
+  tags: [sync, systemd]
+
+- name: Generate systemd timer file locally
+  template:
+    src: netbox-dns-sync.timer.j2
+    dest: "/tmp/netbox-dns-sync-{{ sync_vmid }}.timer"
+  delegate_to: localhost
+  become: false
+  tags: [sync, systemd]
+
+- name: Push systemd timer to container
+  command: "pct push {{ sync_vmid }} /tmp/netbox-dns-sync-{{ sync_vmid }}.timer /etc/systemd/system/netbox-dns-sync.timer"
+  changed_when: false
+  tags: [sync, systemd]
+
+- name: Clean up local systemd temp files
+  file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - "/tmp/netbox-dns-sync-{{ sync_vmid }}.service"
+    - "/tmp/netbox-dns-sync-{{ sync_vmid }}.timer"
+  delegate_to: localhost
+  become: false
+  tags: [sync, systemd]
+
+- name: Reload systemd in container
+  command: "pct exec {{ sync_vmid }} -- systemctl daemon-reload"
+  changed_when: false
+  tags: [sync, systemd]
+
+# ============================================
+# Phase 5: Enable Timer (Optional)
+# ============================================
+
+- name: Enable and start sync timer
+  command: "pct exec {{ sync_vmid }} -- systemctl enable --now netbox-dns-sync.timer"
+  when: sync_enable_timer
+  changed_when: false
+  tags: [sync, systemd]
+
+# ============================================
+# Phase 6: Run Initial Sync (Optional)
+# ============================================
+
+- name: Run initial sync
+  command: "pct exec {{ sync_vmid }} -- {{ sync_script_path }}"
+  register: initial_sync
+  when: sync_run_initial and sync_netbox_token != ''
+  changed_when: false
+  failed_when: false
+  tags: [sync, run]
+
+- name: Display initial sync result
+  debug:
+    msg: "{{ initial_sync.stdout | default('Skipped - no token or disabled') }}"
+  when: sync_run_initial
+  tags: [sync, run]
+
+# ============================================
+# Phase 7: Display Info
+# ============================================
+
+- name: Display sync setup info
+  debug:
+    msg: |
+      ╔════════════════════════════════════════════════════════════════╗
+      ║   Netbox → DNS Sync Deployed                                   ║
+      ╚════════════════════════════════════════════════════════════════╝
+
+      Sync Script: {{ sync_script_path }}
+      Log File:    {{ sync_log_file }}
+
+      Timer Status: {{ 'ENABLED' if sync_enable_timer else 'DISABLED' }}
+      Initial Run:  {{ 'EXECUTED' if sync_run_initial and sync_netbox_token != '' else 'SKIPPED' }}
+
+      Configuration:
+        Netbox URL:  {{ sync_netbox_url }}
+        DNS URL:     {{ sync_dns_url }}
+        DNS Zone:    {{ sync_dns_zone }}
+
+      Manual Commands (inside container pct enter {{ sync_vmid }}):
+        Run sync:    {{ sync_script_path }}
+        View logs:   journalctl -u netbox-dns-sync
+        Timer status: systemctl status netbox-dns-sync.timer
+
+      ⚠️  IMPORTANT: Set vault_netbox_api_token for sync to work!
+         1. Login to Netbox at http://{{ netbox_container_ip | default('10.203.3.201') }}:{{ netbox_web_port | default(8080) }}
+         2. Go to Admin → API Tokens
+         3. Create token and add to vault.yml
+
+  tags: [sync, info]

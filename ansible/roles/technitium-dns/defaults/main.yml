@@ -1,0 +1,45 @@
+---
+# Technitium DNS Server - Default Variables
+# Deploys DNS in an LXC container on Proxmox
+
+# LXC Container Configuration
+dns_vmid: 203
+dns_hostname: "dns"
+dns_container_ip: "10.203.3.203"
+dns_container_gateway: "10.203.3.1"
+dns_container_cidr: "24"
+
+# Container resources
+dns_cores: 2
+dns_memory: 1024        # 1GB RAM
+dns_swap: 512           # 512MB swap
+dns_disk: "8G"          # 8GB storage
+
+# LXC creation settings
+dns_lxc_template: "local:vztmpl/debian-12-standard_12.7-1_amd64.tar.zst"
+dns_lxc_storage: "local-lvm"
+dns_lxc_bridge: "vmbr0"
+
+# DNS domain for internal resolution
+dns_domain: "hq.doofus.co"
+
+# Network ports
+dns_web_port: 5380
+dns_port: 53
+
+# Admin credentials (override in vault/host_vars)
+dns_admin_password: "{{ vault_dns_admin_password | default('changeme') }}"
+
+# Docker image
+dns_image: "technitium/dns-server:latest"
+
+# Data directory inside container
+dns_data_dir: "/opt/technitium-dns/data"
+
+# Upstream DNS servers for forwarding
+dns_upstream_servers:
+  - "1.1.1.1"
+  - "8.8.8.8"
+
+# SSH keys for container access
+dns_ssh_keys: "{{ ssh_public_keys | default([]) }}"

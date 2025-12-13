@@ -1,0 +1,20 @@
+[Unit]
+Description=Netbox to DNS Sync
+Documentation=https://github.com/your-org/homelab-automation
+After=network.target docker.service
+
+[Service]
+Type=oneshot
+ExecStart={{ sync_script_path }}
+User=root
+StandardOutput=journal
+StandardError=journal
+
+# Security hardening
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths={{ sync_log_file | dirname }}
+
+[Install]
+WantedBy=multi-user.target
