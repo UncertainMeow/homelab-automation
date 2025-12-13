@@ -1,0 +1,97 @@
+version: '3.8'
+
+# GitLab Stack for {{ inventory_hostname }}
+# Managed by Ansible - DO NOT EDIT MANUALLY
+
+services:
+  gitlab:
+    image: gitlab/gitlab-ce:{{ gitlab_version }}
+    container_name: gitlab
+    hostname: {{ gitlab_hostname }}
+    restart: unless-stopped
+    ports:
+      - "{{ gitlab_http_port }}:80"
+      - "{{ gitlab_https_port }}:443"
+      - "{{ gitlab_ssh_port }}:22"
+    environment:
+      GITLAB_OMNIBUS_CONFIG: |
+        external_url '{{ gitlab_external_url }}'
+        gitlab_rails['gitlab_shell_ssh_port'] = {{ gitlab_ssh_port }}
+
+        # Disable monitoring to save resources
+        prometheus_monitoring['enable'] = false
+        grafana['enable'] = false
+
+        # Puma tuning for homelab
+        puma['worker_processes'] = 2
+        puma['min_threads'] = 1
+        puma['max_threads'] = 4
+
+        # Sidekiq tuning
+        sidekiq['max_concurrency'] = 10
+
+        # PostgreSQL tuning
+        postgresql['shared_buffers'] = "256MB"
+
+{% if gitlab_registry_url %}
+        # Container Registry
+        registry_external_url '{{ gitlab_registry_url }}'
+{% endif %}
+
+{% if gitlab_smtp_enabled %}
+        # SMTP Configuration
+        gitlab_rails['smtp_enable'] = true
+        gitlab_rails['smtp_address'] = '{{ gitlab_smtp_address }}'
+        gitlab_rails['smtp_port'] = {{ gitlab_smtp_port }}
+        gitlab_rails['smtp_user_name'] = '{{ gitlab_smtp_user }}'
+        gitlab_rails['smtp_password'] = '{{ gitlab_smtp_password }}'
+        gitlab_rails['smtp_domain'] = '{{ gitlab_smtp_address }}'
+        gitlab_rails['smtp_authentication'] = 'login'
+        gitlab_rails['smtp_enable_starttls_auto'] = true
+{% endif %}
+
+        # Backup retention (7 days)
+        gitlab_rails['backup_keep_time'] = 604800
+
+        # Timezone
+        gitlab_rails['time_zone'] = '{{ gitlab_timezone }}'
+    volumes:
+      - gitlab_config:/etc/gitlab
+      - gitlab_logs:/var/log/gitlab
+      - gitlab_data:/var/opt/gitlab
+    shm_size: '{{ gitlab_shm_size }}'
+    networks:
+      - gitlab-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/-/health"]
+      interval: 60s
+      timeout: 30s
+      retries: 5
+      start_period: 300s
+
+{% if gitlab_deploy_runner %}
+  gitlab-runner:
+    image: gitlab/gitlab-runner:{{ gitlab_runner_version }}
+    container_name: gitlab-runner
+    restart: unless-stopped
+    volumes:
+      - gitlab_runner_config:/etc/gitlab-runner
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      - gitlab-network
+    depends_on:
+      gitlab:
+        condition: service_healthy
+{% endif %}
+
+volumes:
+  gitlab_config:
+  gitlab_logs:
+  gitlab_data:
+{% if gitlab_deploy_runner %}
+  gitlab_runner_config:
+{% endif %}
+
+networks:
+  gitlab-network:
+    driver: bridge

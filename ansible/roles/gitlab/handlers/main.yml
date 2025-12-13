@@ -1,0 +1,12 @@
+---
+# GitLab Role - Handlers
+
+- name: restart gitlab
+  command: docker compose restart
+  args:
+    chdir: "{{ gitlab_stack_path }}"
+
+- name: reconfigure gitlab
+  command: docker exec gitlab gitlab-ctl reconfigure
+  async: 300
+  poll: 10

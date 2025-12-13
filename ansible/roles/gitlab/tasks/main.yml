@@ -1,0 +1,195 @@
+---
+# GitLab Role - Main Tasks
+# Deploys GitLab CE using Docker Compose
+
+# ============================================
+# Prerequisites
+# ============================================
+- name: Check if Docker is installed
+  command: docker --version
+  register: docker_check
+  changed_when: false
+  failed_when: docker_check.rc != 0
+  tags: [gitlab, prerequisites]
+
+- name: Check if Docker Compose is installed
+  command: docker compose version
+  register: compose_check
+  changed_when: false
+  failed_when: compose_check.rc != 0
+  tags: [gitlab, prerequisites]
+
+# ============================================
+# Directory Setup
+# ============================================
+- name: Create GitLab stack directory
+  file:
+    path: "{{ gitlab_stack_path }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  tags: [gitlab, setup]
+
+# ============================================
+# Deploy Configuration Files
+# ============================================
+- name: Deploy docker-compose.yml
+  template:
+    src: docker-compose.yml.j2
+    dest: "{{ gitlab_compose_file }}"
+    owner: root
+    group: root
+    mode: '0644'
+  notify: restart gitlab
+  tags: [gitlab, config]
+
+- name: Deploy .env file
+  template:
+    src: env.j2
+    dest: "{{ gitlab_env_file }}"
+    owner: root
+    group: root
+    mode: '0600'
+  notify: restart gitlab
+  tags: [gitlab, config]
+
+# ============================================
+# Start GitLab
+# ============================================
+- name: Pull GitLab images
+  command: docker compose pull
+  args:
+    chdir: "{{ gitlab_stack_path }}"
+  register: pull_result
+  changed_when: "'Pull complete' in pull_result.stdout or 'Downloaded' in pull_result.stdout"
+  tags: [gitlab, deploy]
+
+- name: Start GitLab stack
+  command: docker compose up -d
+  args:
+    chdir: "{{ gitlab_stack_path }}"
+  register: compose_up
+  changed_when: "'Started' in compose_up.stdout or 'Created' in compose_up.stdout"
+  tags: [gitlab, deploy]
+
+# ============================================
+# Wait for GitLab to be Ready
+# ============================================
+- name: Wait for GitLab to start (this takes 3-5 minutes)
+  uri:
+    url: "{{ gitlab_external_url }}/-/health"
+    status_code: 200
+  register: gitlab_health
+  until: gitlab_health.status == 200
+  retries: 30
+  delay: 10
+  tags: [gitlab, verify]
+
+# ============================================
+# Get Initial Root Password
+# ============================================
+- name: Check if initial root password file exists
+  stat:
+    path: /var/opt/gitlab/initial_root_password
+  register: root_password_file
+  tags: [gitlab, verify]
+
+- name: Get initial root password from container
+  command: docker exec gitlab cat /etc/gitlab/initial_root_password
+  register: initial_password
+  when: root_password_file.stat.exists is not defined or not root_password_file.stat.exists
+  changed_when: false
+  failed_when: false
+  tags: [gitlab, verify]
+
+- name: Save initial root password info
+  copy:
+    dest: "{{ gitlab_stack_path }}/INITIAL_PASSWORD.txt"
+    content: |
+      GitLab Initial Root Password
+      ============================
+
+      The initial root password can be retrieved with:
+
+        docker exec gitlab cat /etc/gitlab/initial_root_password
+
+      Or check the GitLab container logs:
+
+        docker logs gitlab 2>&1 | grep -A 2 "Password:"
+
+      NOTE: This password expires 24 hours after installation.
+      Change it immediately after first login!
+
+      Access GitLab at: {{ gitlab_external_url }}
+      Username: root
+    owner: root
+    group: root
+    mode: '0600'
+  tags: [gitlab, verify]
+
+# ============================================
+# Firewall Rules (if UFW is present)
+# ============================================
+- name: Check if UFW is installed
+  command: which ufw
+  register: ufw_check
+  changed_when: false
+  failed_when: false
+  tags: [gitlab, firewall]
+
+- name: Allow GitLab HTTP port
+  ufw:
+    rule: allow
+    port: "{{ gitlab_http_port }}"
+    proto: tcp
+  when: ufw_check.rc == 0
+  tags: [gitlab, firewall]
+
+- name: Allow GitLab HTTPS port
+  ufw:
+    rule: allow
+    port: "{{ gitlab_https_port }}"
+    proto: tcp
+  when: ufw_check.rc == 0 and gitlab_https_port != gitlab_http_port
+  tags: [gitlab, firewall]
+
+- name: Allow GitLab SSH port
+  ufw:
+    rule: allow
+    port: "{{ gitlab_ssh_port }}"
+    proto: tcp
+  when: ufw_check.rc == 0
+  tags: [gitlab, firewall]
+
+# ============================================
+# Summary
+# ============================================
+- name: Display GitLab setup summary
+  debug:
+    msg: |
+      GitLab Deployment Complete
+      ══════════════════════════════════════════════════
+
+      Access URL: {{ gitlab_external_url }}
+      SSH Clone:  ssh://git@{{ ansible_default_ipv4.address }}:{{ gitlab_ssh_port }}/
+
+      Initial Login:
+        Username: root
+        Password: Run 'docker exec gitlab cat /etc/gitlab/initial_root_password'
+
+      Configuration: {{ gitlab_stack_path }}
+
+      Useful Commands:
+        docker logs gitlab                    # View logs
+        docker exec -it gitlab gitlab-ctl status  # Service status
+        docker exec -it gitlab gitlab-rake gitlab:check  # Health check
+
+      Next Steps:
+        1. Log in as root and change password
+        2. Create your admin user
+        3. Mirror GitHub repositories
+        4. Set up GitLab Runner for CI/CD
+
+      Documentation: See docs/gitlab-setup.md
+  tags: [gitlab, verify, always]

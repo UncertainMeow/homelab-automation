@@ -1,0 +1,75 @@
+---
+# Rawls - Infrastructure Node
+# GitLab, Technitium DNS, Ansible, Terraform, Authentik
+
+# ============================================
+# Host Description
+# ============================================
+host_description: "Rawls - Infrastructure Node (GitLab, DNS, Automation)"
+
+# ============================================
+# GitLab Configuration
+# ============================================
+gitlab_deploy: true
+gitlab_deploy_runner: false  # Enable later once GitLab is working
+
+# Access URL - use IP for reliability
+gitlab_external_url: "http://10.203.3.47"
+gitlab_hostname: "gitlab.lab.local"
+
+# Port configuration
+gitlab_http_port: 80
+gitlab_https_port: 443
+gitlab_ssh_port: 2222  # Non-standard to avoid conflict with host SSH
+
+# Version pinning (optional - use latest for now)
+# gitlab_version: "16.8.0-ce.0"
+
+# Timezone
+gitlab_timezone: "America/Los_Angeles"
+
+# ============================================
+# Phase Control
+# ============================================
+# Rawls is an infrastructure node - different from GPU workstations
+enable_pci_passthrough: false
+enable_nvidia_setup: false
+create_tailscale_router: false
+create_vm_templates: false
+download_lxc_templates: false
+deploy_dotfiles: true
+generate_snapshot: false
+
+# User management
+setup_users: true
+
+# ============================================
+# DNS + Netbox Configuration
+# ============================================
+# Technitium DNS
+dns_domain: "lab.local"
+dns_web_port: 5380
+dns_data_dir: "/opt/technitium-dns/data"
+# dns_admin_password: "{{ vault_dns_admin_password }}"  # Set in vault
+
+# Netbox IPAM
+netbox_web_port: 8080
+netbox_data_dir: "/opt/netbox"
+netbox_superuser_name: "admin"
+netbox_timezone: "America/Los_Angeles"
+# Credentials - set in vault:
+# netbox_superuser_password: "{{ vault_netbox_superuser_password }}"
+# netbox_db_password: "{{ vault_netbox_db_password }}"
+# netbox_redis_password: "{{ vault_netbox_redis_password }}"
+# netbox_secret_key: "{{ vault_netbox_secret_key }}"
+
+# Netbox-DNS Sync
+sync_dns_zone: "lab.local"
+sync_enable_timer: true
+# sync_netbox_token: "{{ vault_netbox_api_token }}"  # Create after Netbox deploy
+
+# ============================================
+# Future Services (to be enabled)
+# ============================================
+# authentik_deploy: false   # SSO/Identity
+# terraform_state: false    # Terraform state storage

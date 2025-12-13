@@ -1,0 +1,61 @@
+---
+# GitLab Role - Defaults
+# Self-hosted Git server and CI/CD platform
+
+# ============================================
+# Deployment Settings
+# ============================================
+gitlab_deploy: true
+gitlab_deploy_runner: false
+
+# ============================================
+# GitLab Version
+# ============================================
+gitlab_version: "latest"
+gitlab_runner_version: "latest"
+
+# ============================================
+# Network Configuration
+# ============================================
+gitlab_external_url: "http://{{ ansible_default_ipv4.address }}"
+gitlab_hostname: "gitlab.lab.local"
+
+# Port mapping (host:container)
+gitlab_http_port: 80
+gitlab_https_port: 443
+gitlab_ssh_port: 2222
+
+# Container Registry (leave empty to disable)
+gitlab_registry_url: ""
+
+# ============================================
+# Resource Limits
+# ============================================
+# GitLab is memory-hungry - minimum 4GB, recommended 8GB+
+gitlab_shm_size: "256m"
+
+# ============================================
+# Time Zone
+# ============================================
+gitlab_timezone: "America/Los_Angeles"
+
+# ============================================
+# SMTP Configuration (Optional)
+# ============================================
+gitlab_smtp_enabled: false
+# gitlab_smtp_address: "smtp.gmail.com"
+# gitlab_smtp_port: 587
+# gitlab_smtp_user: ""
+# gitlab_smtp_password: ""
+
+# ============================================
+# Paths
+# ============================================
+gitlab_stack_path: "/opt/gitlab-stack"
+gitlab_compose_file: "{{ gitlab_stack_path }}/docker-compose.yml"
+gitlab_env_file: "{{ gitlab_stack_path }}/.env"
+
+# ============================================
+# Docker Settings
+# ============================================
+docker_compose_version: "2.24.0"

@@ -44,7 +44,12 @@
       tags: [thunderbolt, cluster, phase4]
       when: enable_thunderbolt_ring | default(false)
 
-    # Phase 5: Templates & Infrastructure
+    # Phase 5: Services (Docker-based)
+    - role: gitlab
+      tags: [gitlab, services, phase5]
+      when: gitlab_deploy | default(false)
+
+    # Phase 5b: Templates & Infrastructure
     - role: vm-templates
       tags: [vm-templates, templates, phase5]
       when: create_vm_templates | default(false)
@@ -80,6 +85,9 @@
           {% endif %}
           {% if create_tailscale_router | default(false) %}
           🚨 Emergency beacon: {{ tailscale_router_hostname }}
+          {% endif %}
+          {% if gitlab_deploy | default(false) %}
+          🦊 GitLab: {{ gitlab_external_url | default('http://' + ansible_default_ipv4.address) }}
           {% endif %}
 
           Next Steps:
