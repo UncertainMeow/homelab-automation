@@ -26,7 +26,7 @@
     --cores {{ ct_cores }}
     --memory {{ ct_memory }}
     --swap {{ lxc_default_swap }}
-    --rootfs {{ lxc_storage }}:{{ ct_disk }}
+    --rootfs {{ lxc_storage }}:{{ ct_disk | regex_replace('[^0-9]', '') }}
     --net0 name=eth0,bridge={{ lxc_default_bridge }},ip=dhcp
     --features {{ lxc_features | join(',') }}
     --unprivileged {{ '1' if lxc_unprivileged else '0' }}
@@ -146,16 +146,14 @@
   changed_when: false
 
 # Configure nvidia-container-runtime for LXC compatibility
+- name: "{{ ct_name }} - Create nvidia-container-runtime config directory"
+  command: "pct exec {{ ct_vmid }} -- mkdir -p /etc/nvidia-container-runtime"
+  when: install_nvidia_container_toolkit
+  changed_when: false
+
 - name: "{{ ct_name }} - Configure nvidia-container-runtime (no-cgroups)"
   command: >
-    pct exec {{ ct_vmid }} -- bash -c "
-    mkdir -p /etc/nvidia-container-runtime &&
-    cat > /etc/nvidia-container-runtime/config.toml << 'EOF'
-    disable-require = false
-    [nvidia-container-cli]
-    no-cgroups = true
-    EOF
-    "
+    pct exec {{ ct_vmid }} -- bash -c 'echo -e "disable-require = false\n[nvidia-container-cli]\nno-cgroups = true" > /etc/nvidia-container-runtime/config.toml'
   when: install_nvidia_container_toolkit
   changed_when: false
 

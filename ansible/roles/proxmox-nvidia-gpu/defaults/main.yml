@@ -3,13 +3,13 @@
 # Optimized for Tesla P40 and datacenter GPUs
 
 # Driver Configuration
-# Use stable datacenter branch, not bleeding edge consumer drivers
-nvidia_driver_version: "550.127.05"
-nvidia_driver_branch: "550"  # For apt-based fallback
+# Use 570.x branch which supports kernel 6.14+ (required for Proxmox VE 9)
+nvidia_driver_version: "570.124.06"
+nvidia_driver_branch: "570"
 
-# CUDA Toolkit version (12.4 is stable for Pascal architecture)
-cuda_version: "12-4"
-cuda_version_dot: "12.4"
+# CUDA Toolkit version (12.8 matches driver 570.x)
+cuda_version: "12-8"
+cuda_version_dot: "12.8"
 
 # Driver installation method: "runfile" or "apt"
 # runfile: More control, works on Proxmox's Debian base
@@ -37,11 +37,13 @@ nvidia_kvm_options: true
 nvidia_build_packages:
   - build-essential
   - dkms
-  - pve-headers-{{ ansible_kernel }}
   - make
   - gcc
   - pkg-config
   - libglvnd-dev
+
+# Kernel compatibility - pin to 6.14 for NVIDIA driver support
+nvidia_compatible_kernel: "6.14.11-4-pve"
 
 # Utility packages
 nvidia_utility_packages:

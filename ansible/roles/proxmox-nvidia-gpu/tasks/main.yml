@@ -61,7 +61,59 @@
   tags: [nvidia, detect]
 
 # ============================================
-# Phase 2: Prerequisites
+# Phase 2: Kernel Compatibility (Proxmox VE 9)
+# ============================================
+# NVIDIA drivers don't support kernel 6.17+, need kernel 6.14.x
+
+- name: Check current kernel version
+  command: uname -r
+  register: current_kernel
+  changed_when: false
+  tags: [nvidia, kernel]
+
+- name: Set kernel compatibility facts
+  set_fact:
+    kernel_version: "{{ current_kernel.stdout }}"
+    kernel_is_617: "{{ current_kernel.stdout is search('6\\.17') }}"
+  tags: [nvidia, kernel]
+
+- name: Install compatible kernel (6.14) if running 6.17+
+  apt:
+    name:
+      - proxmox-kernel-6.14.11-4-pve
+      - proxmox-headers-6.14.11-4-pve
+    state: present
+    update_cache: yes
+  when: kernel_is_617
+  register: kernel_installed
+  tags: [nvidia, kernel]
+
+- name: Pin kernel 6.14 for NVIDIA compatibility
+  command: proxmox-boot-tool kernel pin 6.14.11-4-pve
+  when: kernel_is_617 and kernel_installed.changed
+  tags: [nvidia, kernel]
+
+- name: Update GRUB after kernel pin
+  command: update-grub
+  when: kernel_is_617 and kernel_installed.changed
+  tags: [nvidia, kernel]
+
+- name: Reboot required for kernel change
+  fail:
+    msg: |
+      Kernel 6.17 is not compatible with NVIDIA drivers.
+      Kernel 6.14.11-4-pve has been installed and pinned.
+
+      Please reboot and re-run the playbook:
+        ssh root@{{ ansible_host }} reboot
+
+      Then re-run:
+        ansible-playbook -i inventory-prod.ini site.yml --limit {{ inventory_hostname }} --ask-pass
+  when: kernel_is_617 and kernel_installed.changed
+  tags: [nvidia, kernel]
+
+# ============================================
+# Phase 3: Prerequisites
 # ============================================
 
 - name: Install build dependencies
@@ -111,7 +163,45 @@
   tags: [nvidia, check]
 
 # ============================================
-# Phase 4: Driver Installation (runfile method)
+# Phase 4: Blacklist Nouveau
+# ============================================
+
+- name: Blacklist Nouveau driver
+  copy:
+    dest: /etc/modprobe.d/blacklist-nouveau.conf
+    content: |
+      blacklist nouveau
+      options nouveau modeset=0
+    mode: '0644'
+  register: nouveau_blacklisted
+  tags: [nvidia, nouveau]
+
+- name: Update initramfs after blacklisting Nouveau
+  command: update-initramfs -u
+  when: nouveau_blacklisted.changed
+  tags: [nvidia, nouveau]
+
+- name: Check if Nouveau is currently loaded
+  shell: lsmod | grep -i nouveau || true
+  register: nouveau_loaded
+  changed_when: false
+  tags: [nvidia, nouveau]
+
+- name: Reboot required if Nouveau is loaded
+  fail:
+    msg: |
+      Nouveau driver is currently loaded. A reboot is required to unload it.
+
+      Please reboot Socrates and re-run the playbook:
+        ssh root@{{ ansible_host }} reboot
+
+      Then re-run:
+        ansible-playbook -i inventory-prod.ini site.yml --limit socrates --ask-pass
+  when: nouveau_loaded.stdout | length > 0 and nouveau_blacklisted.changed
+  tags: [nvidia, nouveau]
+
+# ============================================
+# Phase 5: Driver Installation (runfile method)
 # ============================================
 
 - name: Create NVIDIA download directory

@@ -56,17 +56,35 @@
   when: has_any_gpu or force_pci_passthrough | default(false)
   tags: [pci-passthrough, bootmgr]
 
+- name: Check for GRUB config
+  stat:
+    path: /etc/default/grub
+  register: grub_config
+  when: has_any_gpu or force_pci_passthrough | default(false)
+  tags: [pci-passthrough, bootmgr]
+
+- name: Check for systemd-boot cmdline
+  stat:
+    path: /etc/kernel/cmdline
+  register: systemd_boot_cmdline
+  when: has_any_gpu or force_pci_passthrough | default(false)
+  tags: [pci-passthrough, bootmgr]
+
 - name: Set boot manager facts
   set_fact:
-    uses_grub: "{{ efi_check.rc != 0 }}"
-    uses_systemd_boot: "{{ efi_check.rc == 0 and 'systemd' in efi_check.stdout }}"
+    # Use GRUB if /etc/default/grub exists (covers BIOS and UEFI GRUB installs)
+    uses_grub: "{{ grub_config.stat.exists | default(false) }}"
+    # Only use systemd-boot if /etc/kernel/cmdline actually exists
+    uses_systemd_boot: "{{ systemd_boot_cmdline.stat.exists | default(false) }}"
   when: has_any_gpu or force_pci_passthrough | default(false)
   tags: [pci-passthrough, bootmgr]
 
 - name: Display boot manager detection
   debug:
     msg: |
-      Boot Manager: {{ 'GRUB (Legacy/BIOS)' if uses_grub else 'systemd-boot (UEFI)' if uses_systemd_boot else 'Unknown' }}
+      Boot Manager: {{ 'GRUB' if uses_grub else 'systemd-boot' if uses_systemd_boot else 'Unknown' }}
+      GRUB config: {{ '/etc/default/grub' if uses_grub else 'Not found' }}
+      systemd-boot cmdline: {{ '/etc/kernel/cmdline' if uses_systemd_boot else 'Not found' }}
   when: has_any_gpu or force_pci_passthrough | default(false)
   tags: [pci-passthrough, bootmgr]
 

@@ -10,11 +10,11 @@ host_description: "Dell R730 - AI Workstation with 2x Tesla P40"
 # ============================================
 # NVIDIA Driver Configuration
 # ============================================
-# Using stable datacenter driver branch for Tesla P40
-nvidia_driver_version: "550.127.05"
-nvidia_driver_branch: "550"
-cuda_version: "12-4"
-cuda_version_dot: "12.4"
+# Using 570.x branch - supports Proxmox VE 9's kernel 6.14+
+nvidia_driver_version: "570.124.06"
+nvidia_driver_branch: "570"
+cuda_version: "12-8"
+cuda_version_dot: "12.8"
 
 # P40-specific power management
 nvidia_power_limit: 250           # P40 TDP
@@ -94,7 +94,7 @@ ai_containers:
 # ============================================
 # Container Defaults (Socrates-specific)
 # ============================================
-lxc_template: "local:vztmpl/debian-12-standard_12.7-1_amd64.tar.zst"
+lxc_template: "local:vztmpl/debian-12-standard_12.12-1_amd64.tar.zst"
 lxc_storage: "local-lvm"
 lxc_default_bridge: "vmbr0"
 
