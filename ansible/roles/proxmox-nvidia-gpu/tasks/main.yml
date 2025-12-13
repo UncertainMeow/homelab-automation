@@ -464,4 +464,4 @@
       Info file: /root/nvidia-gpu-info.txt
 
       Next: Configure LXC containers with nvidia-lxc-ai role
-  tags: [nvidia, always]
+  tags: [nvidia, info]

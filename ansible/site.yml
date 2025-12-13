@@ -11,6 +11,11 @@
     - role: proxmox-base
       tags: [base, phase1]
 
+    # Phase 1b: User Management (early - before other config)
+    - role: user-management
+      tags: [users, phase1]
+      when: setup_users | default(true)
+
     # Phase 2: Community Scripts & Optimizations
     - role: proxmox-community-scripts
       tags: [community-scripts, phase2]

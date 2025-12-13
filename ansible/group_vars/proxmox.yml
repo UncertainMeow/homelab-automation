@@ -13,6 +13,24 @@ timezone: "America/New_York"
 # Add your SSH public keys here (one per line in the list)
 ssh_public_keys:
   - "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIN7jefck23Q1wCFLAS3shg6uVpiOXKdVRPiPqRQc2gNz cogito"
+  - "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIEIBPoFy/oe9j6lvXyVgnaPRb72EznbsuJQUDhQYxu2l ergo-sum"
+
+# ============================================
+# User Management
+# ============================================
+setup_users: true
+
+# Admin user (your personal account)
+admin_user: kellen
+admin_ssh_keys: "{{ ssh_public_keys }}"
+
+# Automation user (for ansible/CI)
+automation_user: ansible
+automation_ssh_keys: "{{ ssh_public_keys }}"
+
+# SSH hardening (set disable_root_ssh: true after verifying kellen user works)
+disable_password_auth: true
+disable_root_ssh: false  # IMPORTANT: Test kellen login first!
 
 # Install and configure fail2ban for SSH protection
 install_fail2ban: false

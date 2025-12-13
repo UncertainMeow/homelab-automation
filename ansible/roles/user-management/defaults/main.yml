@@ -1,0 +1,30 @@
+---
+# User Management Role - Defaults
+
+# Primary admin user
+admin_user: kellen
+admin_shell: /bin/bash
+admin_groups:
+  - sudo
+  - adm
+
+# SSH keys for admin user (SSH-only auth, no password)
+admin_ssh_keys:
+  - "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIN7jefck23Q1wCFLAS3shg6uVpiOXKdVRPiPqRQc2gNz cogito"
+  - "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIEIBPoFy/oe9j6lvXyVgnaPRb72EznbsuJQUDhQYxu2l ergo-sum"
+
+# Automation user (for ansible/CI)
+# Named 'automation_user' to avoid conflict with Ansible's 'ansible_user' connection variable
+automation_user: ansible
+automation_shell: /bin/bash
+automation_groups:
+  - sudo
+
+# SSH keys for automation user (can be same as admin or separate)
+automation_ssh_keys: "{{ admin_ssh_keys }}"
+
+# Whether to disable root SSH login after user setup
+disable_root_ssh: false  # Set true once confident users work
+
+# Whether to disable password authentication entirely
+disable_password_auth: true
