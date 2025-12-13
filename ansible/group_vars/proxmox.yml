@@ -28,9 +28,9 @@ admin_ssh_keys: "{{ ssh_public_keys }}"
 automation_user: ansible
 automation_ssh_keys: "{{ ssh_public_keys }}"
 
-# SSH hardening (set disable_root_ssh: true after verifying kellen user works)
+# SSH hardening
 disable_password_auth: true
-disable_root_ssh: false  # IMPORTANT: Test kellen login first!
+disable_root_ssh: true  # Root SSH disabled - use kellen or ansible user
 
 # Install and configure fail2ban for SSH protection
 install_fail2ban: false
