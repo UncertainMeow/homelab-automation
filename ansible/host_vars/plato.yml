@@ -1,0 +1,104 @@
+---
+# Plato - Proxmox Backup Server
+# Dedicated backup server for all PVE nodes
+
+# ============================================
+# Host Description
+# ============================================
+host_description: "Proxmox Backup Server - Centralized backups"
+
+# ============================================
+# Datastore Configuration
+# ============================================
+# Datastores available on this PBS host
+# Adjust paths based on actual storage configuration
+pbs_datastores:
+  - name: infra
+    path: /mnt/datastore/infra
+    comment: "Critical infrastructure VMs (GitLab, DNS, NetBox)"
+  - name: ai
+    path: /mnt/datastore/ai
+    comment: "AI containers from Socrates (gpu0, gpu1, unified)"
+  - name: media
+    path: /mnt/datastore/media
+    comment: "Media stack VMs and containers"
+
+# ZFS pool name (set if PBS uses ZFS storage)
+# Leave empty for auto-detection
+pbs_zfs_pool: ""
+
+# ============================================
+# Retention Policy
+# ============================================
+# Retention for Plato's datastores
+pbs_retention:
+  keep_daily: 7      # Keep last 7 daily backups
+  keep_weekly: 4     # Keep last 4 weekly backups
+  keep_monthly: 6    # Keep last 6 monthly backups
+  keep_yearly: 1     # Keep last yearly backup
+
+# ============================================
+# Backup Sources Configuration
+# ============================================
+# Phase 1: Primary backup sources
+pbs_backup_sources:
+  socrates:
+    host: 10.203.3.42
+    description: "AI Workstation - Dell R730 with 2x Tesla P40"
+    priority: high
+    vms:
+      - vmid: 200
+        name: ai-unified
+        description: "Dual-GPU AI container"
+      - vmid: 201
+        name: ai-gpu0
+        description: "GPU 0 AI container"
+      - vmid: 202
+        name: ai-gpu1
+        description: "GPU 1 AI container"
+
+# Future phases (document for reference)
+# Phase 2:
+#   rawls:
+#     host: 10.203.3.47
+#     vms: [gitlab, dns, netbox]
+#   zeno:
+#     host: 10.203.3.49
+#     vms: [media-stack]
+#
+# Phase 3:
+#   frege, russell, wittgenstein (MS-01 cluster)
+
+# ============================================
+# Backup Schedules
+# ============================================
+# These are used when creating backup jobs on PVE nodes
+pbs_backup_schedules:
+  nightly_ai:
+    name: "nightly-ai-containers"
+    schedule: "03:15"
+    datastore: ai
+    targets: "200,201,202"  # ai-unified, ai-gpu0, ai-gpu1
+    mode: snapshot
+    compress: zstd
+
+# ============================================
+# Phase Control
+# ============================================
+# Enable all PBS configuration tasks
+pbs_configure_datastores: true
+pbs_configure_users: true
+pbs_configure_retention: true
+pbs_configure_maintenance: true
+pbs_install_cron_jobs: true
+
+# ============================================
+# Notes
+# ============================================
+# PBS Web UI: https://10.203.3.97:8007
+#
+# After running this playbook:
+# 1. Save the generated token to 1Password
+# 2. Run PVE storage setup on Socrates first
+# 3. Create backup jobs using the schedules above
+# 4. Test restore procedure before considering setup complete

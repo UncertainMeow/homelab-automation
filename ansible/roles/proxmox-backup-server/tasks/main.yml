@@ -1,0 +1,338 @@
+---
+# Proxmox Backup Server Configuration Role
+# Configures PBS for automated backups from PVE nodes
+
+# ============================================
+# Validation
+# ============================================
+- name: Verify this is a Proxmox Backup Server host
+  stat:
+    path: /etc/proxmox-backup
+  register: pbs_check
+  tags: [pbs, validate]
+
+- name: Fail if not a PBS host
+  assert:
+    that:
+      - pbs_check.stat.exists
+      - pbs_check.stat.isdir
+    fail_msg: "This role must be run on a Proxmox Backup Server host (/etc/proxmox-backup not found)"
+  tags: [pbs, validate]
+
+- name: Check for proxmox-backup-manager command
+  command: which proxmox-backup-manager
+  register: pbm_check
+  changed_when: false
+  failed_when: false
+  tags: [pbs, validate]
+
+- name: Fail if proxmox-backup-manager not found
+  fail:
+    msg: "proxmox-backup-manager command not found - is PBS installed?"
+  when: pbm_check.rc != 0
+  tags: [pbs, validate]
+
+# ============================================
+# Base System Configuration
+# ============================================
+- name: Install essential utilities
+  apt:
+    name:
+      - vim
+      - curl
+      - wget
+      - htop
+      - iotop
+      - ncdu
+      - tmux
+      - net-tools
+      - jq
+      - openssl
+      - sudo
+    state: present
+    update_cache: yes
+    cache_valid_time: 3600
+  tags: [pbs, packages]
+
+# ============================================
+# User Management
+# ============================================
+- name: Configure SSH - Disable root password login
+  lineinfile:
+    path: /etc/ssh/sshd_config
+    regexp: '^#?PermitRootLogin'
+    line: 'PermitRootLogin prohibit-password'
+    state: present
+  notify: restart sshd
+  tags: [pbs, security]
+
+- name: Add SSH authorized keys for root
+  authorized_key:
+    user: root
+    key: "{{ item }}"
+    state: present
+  loop: "{{ ssh_public_keys }}"
+  when: ssh_public_keys is defined and ssh_public_keys | length > 0
+  tags: [pbs, security]
+
+# ============================================
+# PBS User and Token Setup
+# ============================================
+- name: Check if PBS backup user exists
+  shell: proxmox-backup-manager user list | awk '{print $1}' | grep -qx "{{ pbs_backup_user }}"
+  register: pbs_user_check
+  changed_when: false
+  failed_when: false
+  when: pbs_configure_users | default(true)
+  tags: [pbs, users]
+
+- name: Create PBS backup user
+  command: proxmox-backup-manager user create "{{ pbs_backup_user }}"
+  when:
+    - pbs_configure_users | default(true)
+    - pbs_user_check.rc != 0
+  tags: [pbs, users]
+
+- name: Check if PBS token exists
+  shell: proxmox-backup-manager user list-tokens "{{ pbs_backup_user }}" | awk '{print $1}' | grep -qx "{{ pbs_backup_user }}!{{ pbs_backup_token_name }}"
+  register: pbs_token_check
+  changed_when: false
+  failed_when: false
+  when: pbs_configure_users | default(true)
+  tags: [pbs, users]
+
+- name: Generate PBS token (save output for 1Password)
+  command: proxmox-backup-manager user generate-token "{{ pbs_backup_user }}" "{{ pbs_backup_token_name }}"
+  register: pbs_token_output
+  when:
+    - pbs_configure_users | default(true)
+    - pbs_token_check.rc != 0
+  tags: [pbs, users]
+
+- name: Display token information
+  debug:
+    msg: |
+      PBS Token Created!
+      ====================
+      Token ID: {{ pbs_backup_user }}!{{ pbs_backup_token_name }}
+
+      IMPORTANT: Save the token secret to 1Password immediately!
+      Token output:
+      {{ pbs_token_output.stdout | default('Token already exists') }}
+
+      You will need this secret when running the PVE storage setup.
+  when:
+    - pbs_configure_users | default(true)
+    - pbs_token_output.changed | default(false)
+  tags: [pbs, users]
+
+# ============================================
+# Get TLS Fingerprint
+# ============================================
+- name: Get PBS TLS fingerprint
+  shell: |
+    openssl s_client -connect localhost:8007 -showcerts </dev/null 2>/dev/null \
+      | openssl x509 -fingerprint -noout -sha256 | cut -d'=' -f2
+  register: pbs_fingerprint
+  changed_when: false
+  tags: [pbs, tls]
+
+- name: Save TLS fingerprint to file
+  copy:
+    content: |
+      # PBS TLS Fingerprint
+      # Use this when adding PBS storage to PVE nodes
+      {{ pbs_fingerprint.stdout }}
+    dest: /root/pbs-fingerprint.txt
+    mode: '0600'
+  tags: [pbs, tls]
+
+# ============================================
+# Datastore ACLs
+# ============================================
+- name: Grant datastore permissions to backup user
+  command: >
+    proxmox-backup-manager acl update
+    /datastore/{{ item.name }}
+    Datastore.Backup,Datastore.Audit
+    --auth-id "{{ pbs_backup_user }}!{{ pbs_backup_token_name }}"
+  loop: "{{ pbs_datastores }}"
+  when: pbs_configure_users | default(true)
+  changed_when: false
+  tags: [pbs, acl]
+
+# ============================================
+# Retention Policies (Prune Jobs)
+# ============================================
+- name: Check existing prune jobs
+  shell: proxmox-backup-manager prune-job list --output-format json
+  register: existing_prune_jobs
+  changed_when: false
+  when: pbs_configure_retention | default(true)
+  tags: [pbs, retention]
+
+- name: Create prune jobs for each datastore
+  command: >
+    proxmox-backup-manager prune-job create keep-{{ item.name }}
+    --store {{ item.name }}
+    --schedule "{{ pbs_prune_schedule }}"
+    --keep-daily {{ pbs_retention.keep_daily }}
+    --keep-weekly {{ pbs_retention.keep_weekly }}
+    --keep-monthly {{ pbs_retention.keep_monthly }}
+    --keep-yearly {{ pbs_retention.keep_yearly }}
+  loop: "{{ pbs_datastores }}"
+  when:
+    - pbs_configure_retention | default(true)
+    - ("keep-" + item.name) not in (existing_prune_jobs.stdout | from_json | map(attribute='id') | list)
+  tags: [pbs, retention]
+
+# ============================================
+# Verification Jobs
+# ============================================
+- name: Check existing verify jobs
+  shell: proxmox-backup-manager verify-job list --output-format json
+  register: existing_verify_jobs
+  changed_when: false
+  when: pbs_configure_maintenance | default(true)
+  tags: [pbs, verify]
+
+- name: Create weekly full verification jobs
+  command: >
+    proxmox-backup-manager verify-job create verify-{{ item.name }}-weekly
+    --store {{ item.name }}
+    --schedule "{{ pbs_verify_weekly_schedule }}"
+  loop: "{{ pbs_datastores }}"
+  when:
+    - pbs_configure_maintenance | default(true)
+    - ("verify-" + item.name + "-weekly") not in (existing_verify_jobs.stdout | from_json | map(attribute='id') | list)
+  tags: [pbs, verify]
+
+- name: Create daily incremental verification jobs
+  command: >
+    proxmox-backup-manager verify-job create verify-{{ item.name }}-daily
+    --store {{ item.name }}
+    --schedule "{{ pbs_verify_daily_schedule }}"
+    --outdated-after 1
+  loop: "{{ pbs_datastores }}"
+  when:
+    - pbs_configure_maintenance | default(true)
+    - ("verify-" + item.name + "-daily") not in (existing_verify_jobs.stdout | from_json | map(attribute='id') | list)
+  tags: [pbs, verify]
+
+# ============================================
+# Garbage Collection
+# ============================================
+- name: Create garbage collection cron job
+  cron:
+    name: "PBS garbage collection - {{ item.name }}"
+    minute: "15"
+    hour: "5"
+    weekday: "0"
+    job: "proxmox-backup-manager garbage-collection start {{ item.name }} >/dev/null 2>&1"
+    user: root
+  loop: "{{ pbs_datastores }}"
+  when: pbs_install_cron_jobs | default(true)
+  tags: [pbs, gc]
+
+# ============================================
+# ZFS Maintenance (if applicable)
+# ============================================
+- name: Check if ZFS is available
+  command: which zpool
+  register: zfs_check
+  changed_when: false
+  failed_when: false
+  tags: [pbs, zfs]
+
+- name: Get ZFS pool name
+  shell: zpool list -H -o name | head -1
+  register: zfs_pool_name
+  changed_when: false
+  when: zfs_check.rc == 0
+  tags: [pbs, zfs]
+
+- name: Create ZFS scrub cron job
+  cron:
+    name: "ZFS scrub - {{ zfs_pool_name.stdout }}"
+    minute: "30"
+    hour: "2"
+    weekday: "0"
+    job: "zpool scrub {{ zfs_pool_name.stdout }} >/dev/null 2>&1"
+    user: root
+  when:
+    - zfs_check.rc == 0
+    - pbs_install_cron_jobs | default(true)
+    - zfs_pool_name.stdout | length > 0
+  tags: [pbs, zfs]
+
+# ============================================
+# Generate Info File
+# ============================================
+- name: Generate PBS configuration summary
+  copy:
+    content: |
+      ╔════════════════════════════════════════════════════════════╗
+      ║   Proxmox Backup Server - {{ inventory_hostname }}
+      ║   Configured by Ansible
+      ╚════════════════════════════════════════════════════════════╝
+
+      Generated: {{ ansible_date_time.iso8601 }}
+
+      == Access Information ==
+      Web UI: https://{{ ansible_default_ipv4.address }}:8007
+
+      == Backup User ==
+      User: {{ pbs_backup_user }}
+      Token: {{ pbs_backup_user }}!{{ pbs_backup_token_name }}
+
+      == TLS Fingerprint ==
+      {{ pbs_fingerprint.stdout }}
+
+      == Datastores ==
+      {% for ds in pbs_datastores %}
+      - {{ ds.name }}: {{ ds.path }}
+        {{ ds.comment | default('') }}
+      {% endfor %}
+
+      == Retention Policy ==
+      - Daily: {{ pbs_retention.keep_daily }} backups
+      - Weekly: {{ pbs_retention.keep_weekly }} backups
+      - Monthly: {{ pbs_retention.keep_monthly }} backups
+      - Yearly: {{ pbs_retention.keep_yearly }} backups
+
+      == Maintenance Schedule ==
+      - Prune: {{ pbs_prune_schedule }}
+      - Weekly Verify: {{ pbs_verify_weekly_schedule }}
+      - Garbage Collection: Sunday 05:15
+      {% if zfs_check.rc == 0 %}
+      - ZFS Scrub: Sunday 02:30 (pool: {{ zfs_pool_name.stdout | default('N/A') }})
+      {% endif %}
+
+      == Next Steps ==
+      1. Save token secret to 1Password
+      2. Run PVE storage setup on each Proxmox VE node
+      3. Create backup jobs for VMs/containers
+      4. Test restore procedure
+
+    dest: /root/pbs-info.txt
+    mode: '0600'
+  tags: [pbs, info]
+
+- name: Display completion summary
+  debug:
+    msg: |
+      ╔══════════════════════════════════════════════════════════════╗
+      ║   PBS Configuration Complete!                                ║
+      ╚══════════════════════════════════════════════════════════════╝
+
+      Host: {{ inventory_hostname }} ({{ ansible_default_ipv4.address }})
+      Web UI: https://{{ ansible_default_ipv4.address }}:8007
+
+      Datastores configured: {{ pbs_datastores | map(attribute='name') | join(', ') }}
+
+      IMPORTANT: If a new token was created, save the secret to 1Password!
+      See /root/pbs-info.txt for full configuration details.
+      See /root/pbs-fingerprint.txt for TLS fingerprint.
+
+      Next: Run PVE storage setup on Proxmox VE nodes
+  tags: [always]

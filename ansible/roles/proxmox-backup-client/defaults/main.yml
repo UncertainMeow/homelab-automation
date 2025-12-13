@@ -1,0 +1,54 @@
+---
+# Proxmox Backup Client Role - Default Variables
+# Configure PVE nodes to backup to PBS
+
+# ============================================
+# PBS Connection Settings
+# ============================================
+# PBS server address
+pbs_server: "10.203.3.97"
+
+# PBS authentication (set in vault or host_vars)
+pbs_backup_user: "pve-backup@pam"
+pbs_backup_token_name: "pve-token"
+# pbs_token_secret: "set-in-vault"
+# pbs_fingerprint: "set-in-vault-or-retrieved"
+
+# ============================================
+# Storage Configuration
+# ============================================
+# Datastores to add as PVE storage
+pbs_storage_configs:
+  - name: pbs-infra
+    datastore: infra
+    content: backup
+  - name: pbs-ai
+    datastore: ai
+    content: backup
+  - name: pbs-media
+    datastore: media
+    content: backup
+
+# ============================================
+# Backup Job Configuration
+# ============================================
+# Default backup settings
+pbs_backup_mode: snapshot
+pbs_backup_compress: zstd
+pbs_backup_enabled: true
+
+# Backup jobs to create (override in host_vars)
+# pbs_backup_jobs:
+#   - name: nightly-ai
+#     storage: pbs-ai
+#     vmid: "200,201,202"
+#     schedule: "03:15"
+#     mode: snapshot
+#     compress: zstd
+
+# ============================================
+# Phase Control
+# ============================================
+pbs_add_storage: true
+pbs_create_backup_jobs: true
+pbs_verify_connectivity: true

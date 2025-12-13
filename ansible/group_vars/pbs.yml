@@ -1,0 +1,76 @@
+---
+# Common variables for all Proxmox Backup Server hosts
+# Customize these for your environment
+
+# ============================================
+# Time Configuration
+# ============================================
+timezone: "America/New_York"
+
+# ============================================
+# Security Configuration
+# ============================================
+# SSH keys (same as PVE hosts for consistency)
+ssh_public_keys:
+  - "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIN7jefck23Q1wCFLAS3shg6uVpiOXKdVRPiPqRQc2gNz cogito"
+  - "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIEIBPoFy/oe9j6lvXyVgnaPRb72EznbsuJQUDhQYxu2l ergo-sum"
+
+# ============================================
+# User Management
+# ============================================
+setup_users: true
+
+# Admin user (your personal account)
+admin_user: kellen
+admin_ssh_keys: "{{ ssh_public_keys }}"
+
+# Automation user (for ansible/CI)
+automation_user: ansible
+automation_ssh_keys: "{{ ssh_public_keys }}"
+
+# SSH hardening
+disable_password_auth: true
+disable_root_ssh: true
+
+# ============================================
+# PBS Authentication
+# ============================================
+# Backup user credentials (used by PVE nodes)
+pbs_backup_user: "pve-backup@pam"
+pbs_backup_token_name: "pve-token"
+
+# ============================================
+# Default Maintenance Schedules
+# ============================================
+pbs_prune_schedule: "daily"
+pbs_gc_schedule: "Sun 05:15"
+pbs_verify_weekly_schedule: "Sat 04:30"
+pbs_verify_daily_schedule: "daily"
+pbs_zfs_scrub_schedule: "Sun 02:30"
+
+# ============================================
+# Default Retention Policy
+# ============================================
+pbs_retention:
+  keep_daily: 7
+  keep_weekly: 4
+  keep_monthly: 6
+  keep_yearly: 1
+
+# ============================================
+# Backup Strategy Notes
+# ============================================
+# Priority levels for backup scheduling:
+#
+# HIGH PRIORITY (daily backups, tight retention):
+# - AI containers (gpu0, gpu1, unified) - expensive to recreate
+# - GitLab - contains all code and CI/CD configs
+# - NetBox - infrastructure documentation
+#
+# MEDIUM PRIORITY (daily backups, relaxed retention):
+# - DNS servers - can be recreated from config
+# - Utility VMs - general purpose
+#
+# LOW PRIORITY (weekly backups):
+# - Media stack - data on NAS, configs are disposable
+# - Test/dev VMs - by definition disposable
