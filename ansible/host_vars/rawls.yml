@@ -97,7 +97,7 @@ netbox_dns_sync_deploy: true
 # Sync runs inside the Netbox container
 sync_dns_zone: "hq.doofus.co"
 sync_enable_timer: true
-sync_run_initial: false  # Enable after API token is created
+sync_run_initial: true  # API token is now configured
 
 # ============================================
 # Documentation Site

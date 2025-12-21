@@ -1,0 +1,29 @@
+# Homepage Bookmarks
+# https://gethomepage.dev/configs/bookmarks/
+
+- Documentation:
+    - Homelab Docs:
+        - icon: https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/mkdocs.png
+          href: http://10.203.3.205
+          description: MkDocs documentation site
+
+    - Proxmox Wiki:
+        - icon: proxmox.svg
+          href: https://pve.proxmox.com/wiki/Main_Page
+
+    - Homepage Docs:
+        - icon: homepage.svg
+          href: https://gethomepage.dev/
+
+- External:
+    - GitHub:
+        - icon: github.svg
+          href: https://github.com
+
+    - Cloudflare:
+        - icon: cloudflare.svg
+          href: https://dash.cloudflare.com
+
+    - Tailscale:
+        - icon: tailscale.svg
+          href: https://login.tailscale.com/admin/machines

@@ -41,25 +41,13 @@ enable_nfs_storage: true
 configure_storage_on_primary: true
 
 # NFS exports from stuffs (10.203.3.99)
-# Adjust paths to match your NAS export structure
+# Single NFS share with all Proxmox content types
 nfs_storages:
-  - name: "nfs-vms"
-    export: "/volume1/proxmox/vms"
-    content: "images,rootdir"
-    mount_point: "/mnt/pve/nfs-vms"
-    options: "vers=4.1,noatime,nodiratime"
-
-  - name: "nfs-isos"
-    export: "/volume1/proxmox/isos"
-    content: "iso,vztmpl"
-    mount_point: "/mnt/pve/nfs-isos"
-    options: "vers=4.1,noatime"
-
-  - name: "nfs-backups"
-    export: "/volume1/proxmox/backups"
-    content: "backup"
-    mount_point: "/mnt/pve/nfs-backups"
-    options: "vers=4.1,noatime"
+  - name: "nfs-shared"
+    export: "/volume1/proxmox"
+    content: "images,rootdir,iso,vztmpl,backup,snippets"
+    mount_point: "/mnt/pve/nfs-shared"
+    options: "vers=3,noatime"
 
 # ============================================
 # Phase Control

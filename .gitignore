@@ -1,0 +1,76 @@
+# OS files
+.DS_Store
+.DS_Store?
+._*
+Thumbs.db
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+venv/
+.venv/
+ENV/
+env/
+.env
+*.egg-info/
+.eggs/
+dist/
+build/
+
+# IDE/Editor
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.project
+.settings/
+*.sublime-*
+
+# Ansible
+*.retry
+
+# Secrets - NEVER commit these
+*.pem
+*.key
+**/secrets/
+**/credentials/
+.vault_pass
+vault_password
+**/vault.yml
+**/*vault*.yml
+**/*.vault.yml
+
+# Environment files with secrets
+.env.local
+.env.*.local
+*.env
+
+# Terraform (if used)
+.terraform/
+*.tfstate
+*.tfstate.*
+terraform.tfvars
+*.tfvars
+
+# Logs
+*.log
+logs/
+
+# Backup files
+*.bak
+*.backup
+*.old
+
+# MkDocs build output
+site/
+
+# Node.js (if any frontend tooling)
+node_modules/
+
+# Temporary files
+tmp/
+temp/
+*.tmp

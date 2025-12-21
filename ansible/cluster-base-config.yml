@@ -1,0 +1,100 @@
+---
+# Essential Proxmox configuration for MS-01 cluster (non-interactive)
+- name: Base Proxmox configuration for MS-01 cluster
+  hosts: ms01_cluster
+  become: yes
+  tasks:
+    # Microcode
+    - name: Detect CPU vendor
+      shell: lscpu | grep -i vendor | awk '{print tolower($3)}'
+      register: cpu_vendor
+      changed_when: false
+
+    - name: Install Intel microcode
+      apt:
+        name: intel-microcode
+        state: present
+        update_cache: yes
+      when: "'intel' in cpu_vendor.stdout"
+
+    - name: Install AMD microcode
+      apt:
+        name: amd64-microcode
+        state: present
+        update_cache: yes
+      when: "'amd' in cpu_vendor.stdout"
+
+    # IOMMU Configuration
+    - name: Set IOMMU parameter
+      set_fact:
+        iommu_param: "{{ 'intel_iommu=on' if 'intel' in cpu_vendor.stdout else 'amd_iommu=on' }}"
+
+    - name: Configure GRUB for IOMMU
+      lineinfile:
+        path: /etc/default/grub
+        regexp: '^GRUB_CMDLINE_LINUX_DEFAULT='
+        line: 'GRUB_CMDLINE_LINUX_DEFAULT="quiet {{ iommu_param }} iommu=pt"'
+        backup: yes
+      register: grub_changed
+      notify: update-grub
+
+    # VFIO Modules
+    - name: Add VFIO modules to /etc/modules
+      lineinfile:
+        path: /etc/modules
+        line: "{{ item }}"
+        create: yes
+      loop:
+        - vfio
+        - vfio_iommu_type1
+        - vfio_pci
+      register: modules_changed
+      notify: update-initramfs
+
+    # Disable enterprise repo nag (common post-install fix)
+    - name: Check for enterprise repo
+      stat:
+        path: /etc/apt/sources.list.d/pve-enterprise.list
+      register: enterprise_repo
+
+    - name: Disable enterprise repo
+      replace:
+        path: /etc/apt/sources.list.d/pve-enterprise.list
+        regexp: '^deb'
+        replace: '#deb'
+      when: enterprise_repo.stat.exists
+
+    - name: Add no-subscription repo
+      copy:
+        dest: /etc/apt/sources.list.d/pve-no-subscription.list
+        content: |
+          deb http://download.proxmox.com/debian/pve bookworm pve-no-subscription
+        mode: '0644'
+      register: repo_added
+
+    - name: Update apt cache
+      apt:
+        update_cache: yes
+      when: repo_added is changed
+
+    - name: Display configuration summary
+      debug:
+        msg: |
+          Configuration Complete for {{ inventory_hostname }}:
+          - CPU: {{ 'Intel' if 'intel' in cpu_vendor.stdout else 'AMD' }}
+          - Microcode: Installed
+          - IOMMU: {{ iommu_param }} iommu=pt
+          - VFIO modules: Configured
+          - Enterprise repo: Disabled
+          - No-subscription repo: Added
+          
+          {% if grub_changed is changed or modules_changed is changed %}
+          ⚠️  REBOOT REQUIRED to activate IOMMU and load modules
+          {% endif %}
+
+  handlers:
+    - name: update-grub
+      command: update-grub
+
+    - name: update-initramfs
+      command: update-initramfs -u -k all

@@ -1,0 +1,35 @@
+---
+# Run standard Proxmox post-install configuration on cluster nodes
+- name: Post-install configuration for MS-01 cluster
+  hosts: ms01_cluster
+  become: yes
+  vars:
+    # Community scripts options
+    enable_post_install: true
+    enable_microcode: true
+    enable_netdata: false
+    enable_kernel_clean: true
+    enable_pve_scripts_local: true
+    enable_iptag: true
+    
+    # Force PCI passthrough even without GPU (good practice for IOMMU)
+    force_pci_passthrough: true
+    
+  roles:
+    - proxmox-community-scripts
+    - proxmox-pci-passthrough
+    
+  handlers:
+    - name: update-grub
+      command: update-grub
+      
+    - name: update-initramfs
+      command: update-initramfs -u -k all
+      
+    - name: refresh-pve-efiboot
+      command: pve-efiboot-tool refresh
+      
+    - name: restart netdata
+      service:
+        name: netdata
+        state: restarted

@@ -1,0 +1,6 @@
+# Homepage Docker Integration
+# https://gethomepage.dev/configs/docker/
+
+# Local docker socket (if running on same host)
+# my-docker:
+#   socket: /var/run/docker.sock

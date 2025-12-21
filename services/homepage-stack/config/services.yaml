@@ -1,0 +1,102 @@
+# Homepage Services Configuration
+# https://gethomepage.dev/configs/services/
+
+- Infrastructure:
+    - Proxmox (Socrates):
+        icon: proxmox.svg
+        href: https://10.203.3.42:8006
+        description: AI Workstation - 2x Tesla P40
+        ping: 10.203.3.42
+
+    - Proxmox (Rawls):
+        icon: proxmox.svg
+        href: https://10.203.3.47:8006
+        description: Infrastructure Node
+        ping: 10.203.3.47
+
+    - Proxmox (Zeno):
+        icon: proxmox.svg
+        href: https://10.203.3.49:8006
+        description: Media Server
+        ping: 10.203.3.49
+
+    - Proxmox Backup:
+        icon: proxmox.svg
+        href: https://10.203.3.97:8007
+        description: PBS on Plato
+        ping: 10.203.3.97
+
+    - UniFi Controller:
+        icon: unifi.svg
+        href: https://10.203.3.1
+        description: Network Management
+        ping: 10.203.3.1
+
+    - iDRAC:
+        icon: dell.svg
+        href: https://10.203.3.8
+        description: Socrates Remote Management
+        ping: 10.203.3.8
+
+- AI Services:
+    - Open WebUI:
+        icon: https://cdn.jsdelivr.net/gh/open-webui/open-webui/static/favicon.svg
+        href: http://10.203.3.184:8080
+        description: Chat interface for Ollama
+        ping: 10.203.3.184
+
+    - Ollama API:
+        icon: ollama.svg
+        href: http://10.203.3.184:11434
+        description: LLM API (ai-gpu0)
+        ping: 10.203.3.184
+
+    - Karakeep:
+        icon: https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/bookmark.png
+        href: http://10.203.3.153:3000
+        description: AI Bookmarking (ai-gpu1)
+        ping: 10.203.3.153
+
+- Management:
+    - GitLab:
+        icon: gitlab.svg
+        href: http://10.203.3.204
+        description: Code Repository
+        ping: 10.203.3.204
+
+    - Technitium DNS:
+        icon: technitium-dns.svg
+        href: http://10.203.3.203:5380
+        description: DNS Server
+        ping: 10.203.3.203
+
+    - NetBox:
+        icon: netbox.svg
+        href: http://10.203.3.202:8080
+        description: IPAM & Documentation
+        ping: 10.203.3.202
+
+    - Dockge:
+        icon: dockge.svg
+        href: http://10.203.3.200:5001
+        description: Docker Compose Manager
+        ping: 10.203.3.200
+
+- Cluster (MS-01):
+    - Frege:
+        icon: proxmox.svg
+        href: https://10.203.3.11:8006
+        description: MS-01 Node 1
+        ping: 10.203.3.11
+
+    - Russell:
+        icon: proxmox.svg
+        href: https://10.203.3.12:8006
+        description: MS-01 Node 2
+        ping: 10.203.3.12
+
+    - Wittgenstein:
+        icon: proxmox.svg
+        href: https://10.203.3.13:8006
+        description: MS-01 Node 3
+        ping: 10.203.3.13

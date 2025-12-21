@@ -1,0 +1,52 @@
+# Homepage Settings
+# https://gethomepage.dev/configs/settings/
+
+title: HQ Homelab
+favicon: https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/home-assistant.png
+
+# Theme
+theme: dark
+color: slate
+
+# Background
+background:
+  image: ""
+  blur: sm
+  opacity: 75
+
+# Card style
+cardBlur: sm
+
+# Header style
+headerStyle: clean
+
+# Layout
+layout:
+  Infrastructure:
+    style: row
+    columns: 4
+  AI Services:
+    style: row
+    columns: 3
+  Management:
+    style: row
+    columns: 4
+  Media:
+    style: row
+    columns: 3
+
+# Show stats
+showStats: true
+
+# Status style
+statusStyle: dot
+
+# Hide version
+hideVersion: false
+
+# Disable collapse
+disableCollapse: false
+
+# Provider settings (for widgets)
+providers:
+  openweathermap: weatherapikey  # Replace with actual key if desired

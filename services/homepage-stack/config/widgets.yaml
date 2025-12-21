@@ -1,0 +1,28 @@
+# Homepage Widgets
+# https://gethomepage.dev/configs/widgets/
+
+- search:
+    provider: google
+    target: _blank
+
+- datetime:
+    text_size: xl
+    format:
+      dateStyle: long
+      timeStyle: short
+      hour12: true
+
+- resources:
+    label: System
+    cpu: true
+    memory: true
+    disk: /
+    expanded: true
+
+- openmeteo:
+    label: Weather
+    latitude: 37.7749
+    longitude: -122.4194
+    timezone: America/Los_Angeles
+    units: imperial
+    cache: 5
